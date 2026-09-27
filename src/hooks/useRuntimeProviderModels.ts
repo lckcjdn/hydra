@@ -7,13 +7,14 @@ import {
   type ProviderModelOption
 } from '@shared/types'
 
-const PROVIDERS: ProviderId[] = ['claude', 'codex', 'opencode']
+const PROVIDERS: ProviderId[] = ['claude', 'codex', 'opencode', 'dsh']
 
 export function useRuntimeProviderModels() {
   const [providerModels, setProviderModels] = useState<Record<ProviderId, ProviderModelOption[]>>({
     claude: PROVIDER_MODELS.claude,
     codex: PROVIDER_MODELS.codex,
-    opencode: PROVIDER_MODELS.opencode
+    opencode: PROVIDER_MODELS.opencode,
+    dsh: PROVIDER_MODELS.dsh
   })
 
   useEffect(() => {

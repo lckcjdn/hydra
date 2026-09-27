@@ -78,7 +78,7 @@ export class WorkspaceStore {
   private isAgent(value: unknown): value is PersistedWorkspaceAgent {
     if (!value || typeof value !== 'object') return false
     const obj = value as Record<string, unknown>
-    const validProviders = ['claude', 'codex', 'opencode']
+    const validProviders = ['claude', 'codex', 'opencode', 'dsh']
     return (
       typeof obj.id === 'string' &&
       typeof obj.name === 'string' &&

@@ -15,6 +15,7 @@ import { AgentManager } from '../agents/AgentManager'
 import { ConfigStore } from '../config/ConfigStore'
 import { SessionCatalog } from '../sessions/SessionCatalog'
 import { CodexSessionCatalog } from '../sessions/CodexSessionCatalog'
+import { DshSessionCatalog } from '../sessions/DshSessionCatalog'
 import { HeadlessOrchestrator } from '../headless/HeadlessOrchestrator'
 import { WorkspaceStore } from '../workspace/WorkspaceStore'
 import { DaemonNotificationService } from './DaemonNotificationService'
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
   const workspaceStore = new WorkspaceStore(userDataPath)
   const sessionCatalog = new SessionCatalog()
   const codexSessionCatalog = new CodexSessionCatalog()
+  const dshSessionCatalog = new DshSessionCatalog()
   const agentManager = new AgentManager(sessionCatalog, codexSessionCatalog)
   agentManager.setShellConfigProvider(() => {
     const c = configStore.get()
@@ -133,6 +135,20 @@ async function main(): Promise<void> {
     } catch (err) {
       console.warn('[daemon] Failed to import Codex sessions:', err)
     }
+
+    try {
+      const dshSessions = dshSessionCatalog.listSessions(listOptions)
+      const importedDsh = agentManager.importSessions(
+        dshSessions,
+        getDefaultModelForProvider('dsh'),
+        'dsh'
+      )
+      if (importedDsh > 0) {
+        console.log(`[daemon] Imported ${importedDsh} DSH sessions`)
+      }
+    } catch (err) {
+      console.warn('[daemon] Failed to import DSH sessions:', err)
+    }
   }
   workspaceStore.setAgents(agentManager.exportWorkspaceAgents())
 
@@ -173,6 +189,7 @@ async function main(): Promise<void> {
     configStore,
     sessionCatalog,
     codexSessionCatalog,
+    dshSessionCatalog,
     headlessOrchestrator,
     workspaceStore,
     notificationService,

@@ -359,7 +359,15 @@ export function SkillsTab() {
     if (results.some((r) => !r.success)) refresh()
   }
 
-  const skills = result ? (provider === 'claude' ? result.claude : result.codex) : []
+  // Providers Hydra cannot scan yet (opencode, dsh) resolve to an empty list
+  // instead of silently showing Codex skills.
+  const skills = result
+    ? provider === 'claude'
+      ? result.claude
+      : provider === 'codex'
+        ? result.codex
+        : result[provider] ?? []
+    : []
   const grouped = groupSkills(skills)
 
   return (

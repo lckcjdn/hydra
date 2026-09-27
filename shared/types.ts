@@ -31,7 +31,7 @@ export interface AgentState extends AgentConfig {
 
 // ── Providers ────────────────────────────────────────────────────────────────
 
-export type ProviderId = 'claude' | 'codex' | 'opencode'
+export type ProviderId = 'claude' | 'codex' | 'opencode' | 'dsh'
 
 /** Free-form model identifier — any string accepted so new models work without code changes. */
 export type ModelId = string
@@ -66,6 +66,21 @@ export const PROVIDER_MODELS: Record<ProviderId, ProviderModelOption[]> = {
     { id: 'opencode/qwen3.6-plus-free', label: 'Qwen3.6 Plus Free' },
     { id: 'opencode/nemotron-3-super-free', label: 'Nemotron 3 Super Free' },
     { id: 'opencode/minimax-m2.5-free', label: 'MiniMax M2.5 Free' }
+  ],
+  /**
+   * DSH (DeepSeek Harness) routes, written as `provider/model`. The harness is
+   * driven through its ACP profile, so the live catalog is whatever the
+   * `dsh --profile acp` server advertises for the session's `model` option.
+   * Hydra's own `/model` command in the DSH tile prints that live list, so a
+   * stale entry here only means the dropdown is incomplete, never broken.
+   */
+  dsh: [
+    { id: 'deepseek-official/deepseek-v4-flash', label: 'DeepSeek V4 Flash', isDefault: true },
+    { id: 'deepseek-official/deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
+    { id: 'deepseek-official/deepseek-v4-flash-vision-exp', label: 'DeepSeek V4 Flash Vision' },
+    { id: 'llm-pi-ai/glm-5.3', label: 'GLM 5.3' },
+    { id: 'llm-pi-ai/glm-5.3-flash', label: 'GLM 5.3 Flash' },
+    { id: 'llm-pi-ai/sensenova-u1.5-lite', label: 'SenseNova U1.5 Lite' }
   ]
 }
 
@@ -75,7 +90,8 @@ export type CodexReasoningLevel = (typeof CODEX_REASONING_LEVELS)[number]
 export const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude: 'Claude',
   codex: 'Codex',
-  opencode: 'OpenCode'
+  opencode: 'OpenCode',
+  dsh: 'DSH'
 }
 
 export function getDefaultModelForProvider(provider: ProviderId): ModelId {
@@ -689,6 +705,8 @@ export interface SkillScanResult {
   claude: SkillInfo[]
   codex: SkillInfo[]
   opencode: SkillInfo[]
+  /** DSH skills live in `$DSH_HOME/skills`; Hydra does not scan them yet. */
+  dsh: SkillInfo[]
   scannedAt: string
 }
 

@@ -11,6 +11,11 @@ files:
   - '!electron/*'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,CHANGELOG.md}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,electron.vite.config.ts}'
+# The DSH bridge is executed by a plain Node process (Hydra tiles are ConPTYs
+# and Electron's own runtime writes nothing to them), and stock Node cannot read
+# inside app.asar. Keep a real file next to the archive.
+asarUnpack:
+  - out/main/dshBridge.js
 publish:
   - provider: github
     owner: jpdlr

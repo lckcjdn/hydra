@@ -3,6 +3,7 @@ import type { ModelId, ProviderId, GitBranch, WorkMode, SkillInfo, SkillScanResu
 import claudeIcon from '@/assets/icons/claude.svg'
 import codexIcon from '@/assets/icons/codex.svg'
 import opencodeIcon from '@/assets/icons/opencode.svg'
+import dshIcon from '@/assets/icons/dsh.svg'
 import { useRuntimeProviderModels } from '../../hooks/useRuntimeProviderModels'
 import styles from './InputBar.module.css'
 
@@ -606,7 +607,7 @@ function SendIcon() {
   )
 }
 
-const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon }
+const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon, dsh: dshIcon }
 
 function ProviderIcon({ provider }: { provider?: ProviderId }) {
   const p = provider ?? 'claude'

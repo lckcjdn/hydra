@@ -29,7 +29,7 @@ import { z } from 'zod'
 const editorIdSchema = z.enum(['vscode', 'cursor', 'windsurf', 'antigravity', 'zed', 'finder', 'terminal'])
 const agentIdSchema = z.string().trim().min(1).max(128)
 const projectDirSchema = z.string().trim().min(1).max(4096)
-const providerSchema = z.enum(['claude', 'codex', 'opencode'])
+const providerSchema = z.enum(['claude', 'codex', 'opencode', 'dsh'])
 const modelSchema = z.string().trim().min(1).max(128)
 const reasoningEffortSchema = z.string().trim().max(32).optional()
 const workModeSchema = z.enum(['local', 'worktree']).optional()
@@ -631,6 +631,21 @@ export function registerIpcHandlers(
     const parsed = ccusageOptionsSchema.parse(options)
     const days = parsed?.days ?? 30
     const provider = parsed?.provider ?? 'claude'
+
+    // ccusage reads Claude/Codex local usage. DSH keeps its own per-session
+    // token accounting, so reporting ccusage numbers here would be wrong.
+    if (provider === 'dsh') {
+      return {
+        available: false,
+        provider,
+        installHint:
+          'DSH tracks token usage per session inside ~/.dsh/storages; ccusage does not cover DSH.',
+        generatedAt: new Date().toISOString(),
+        daily: [],
+        projects: {}
+      }
+    }
+
     const since = new Date()
     since.setDate(since.getDate() - days)
     const sinceStr = since.toISOString().slice(0, 10).replace(/-/g, '')

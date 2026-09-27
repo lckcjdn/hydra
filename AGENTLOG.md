@@ -588,3 +588,92 @@ Mistakes, gotchas, and lessons learned during development. Check here before sta
 - `@pierre/trees` 1.0.0-beta.3 expects a flat array of POSIX-style paths. It doesn't lazy-load directories like our existing `FileTree` does. For a first pass we BFS the project on the renderer using the existing `readDir` IPC, capped at 5000 paths / depth 10. If perf bites on big repos, swap to a single main-process walker IPC. Don't try to mutate `paths` by passing new options on re-render — the docs explicitly say later option changes aren't a controlled path. Use `model.resetPaths(...)` from an effect instead.
 - Selection vs activation: trees has no "open file" event. We treat single-row selection as open by reading the last entry of `onSelectionChange` and checking `model.getItem(p).isDirectory()`.
 - Feature flag: `src/lib/featureFlags.ts` is localStorage-backed with a `useSyncExternalStore` hook, exposed on `window.hydraFlags` for devtools toggling (`hydraFlags.set('experimentalViews', false)` to fall back to Monaco/old tree).
+
+### `no-control-regex` also rejects `new RegExp('\x1b…')` string arguments
+**Date**: 2026-09-27
+**Context**: The earlier "CI lint catches control-regex literals" entry recommended `new RegExp(...)` string escapes. Lint failed again on the DSH bridge when ESC was written as a `'\\x1b'` string argument.
+**Mistake**: `no-control-regex` inspects `RegExp()` **string literals** too and unescapes them before checking, so `new RegExp('\\x1b\\[[0-9;]*m')` is reported exactly like the regex literal.
+**Fix**: Build the pattern by concatenation so no literal control character exists: `` new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g') ``. Better still, avoid needing the pattern at all (next entry).
+
+### Hydra reads raw PTY bytes, so a style reset can hide a captured value
+**Date**: 2026-09-27
+**Context**: The DSH bridge prints `session: <uuid>` so `ProviderConfig.sessionIdRegex` can capture the ACP session id. Dimming only the label (`\x1b[2msession:\x1b[0m   <uuid>`) put an ANSI reset between the colon and the id, so the regex never matched and only `AgentManager`'s generic UUID fallback saved the capture.
+**Mistake**: Colouring a label and its value separately on any line a regex reads from the terminal stream.
+**Fix**: Colour the whole line (`\x1b[2msession:   <uuid>\x1b[0m`) so label and value stay contiguous, and pin the invariant with a test that runs the provider's real `sessionIdRegex` against the raw rendered banner.
+
+### DSH has no terminal UI — ACP is the only way to run a DSH agent in a tile
+**Date**: 2026-09-27
+**Context**: Adding DSH as a Hydra provider; the expectation was "spawn the `dsh` TUI in a PTY like Claude/Codex".
+**Mistake**: `~/.dsh/profiles/tui` exists but only lists the `dsh-base` bundle, and DSH ships **no** terminal front-end (`web`, `headless`, `sdk`, `acp` are the shipped surfaces). `dsh-acp`'s own README calls its server "automation-only": no presentation cards, plans, titles, terminals, or elicitation.
+**Fix**: Hydra runs a bundled ACP bridge (`electron/agents/dsh/bridge.ts`, a second main-bundle entry executed with `ELECTRON_RUN_AS_NODE`) that speaks JSON-RPC to `dsh --profile acp` and renders the conversation as ANSI for the tile. Don't go looking for a DSH TUI again.
+
+### DSH session storage: two log filename generations, and the projection cache is the metadata source
+**Date**: 2026-09-27
+**Context**: `DshSessionCatalog` must list sessions a user already has so they can be resumed.
+**Mistake**: Matching only `session.v3.jsonl.zstd` found **8 of 170** sessions on this machine; the other 164 (all older sessions) are named `session.jsonl.zstd`. Silently hiding ~95% of a user's history is worse than showing none.
+**Fix**: Match `^session(?:\.v\d+)?\.jsonl(\.zst|\.zstd|\.gz)?$`. Read metadata from `~/.dsh/storages/session_projcache/sessions/<id>.json` (`record.identity.cwd/createdAt`, `record.rows.titleInput.val.first.text`, `rows.title.val`, `rows.sessionStats.val.turns`), fall back to the aggregate `storages/session_projcache.json`, then to decoding the workspace directory name. Skip sessions whose `rows.subagent.val` carries an `identity` — those are subagent children and `session/resume` rejects them (`session is not resumable`). Cross-check with the server's own `session/list`, which is read-only.
+
+### DSH workspace directory encoding is lossy; `~XXXX` escapes have no trailing delimiter
+**Date**: 2026-09-27
+**Context**: Decoding `--C-Users-me-UltraRad-main~0020~00282~0029--` back to a path when the projection cache has no `cwd`.
+**Mistake**: Assuming the escape was `~XXXX~` (trailing tilde) consumed the next escape's prefix, so `(2)` decoded as `00282~0029`; and assuming `-` is only a separator is wrong because a real dash (`UltraRad-main`) is left literal — the encoding cannot be inverted reliably.
+**Fix**: Escapes are `~XXXX` only (`/~([0-9a-fA-F]{4})/g`). Prefer the projection cache's `cwd` and treat directory decoding as a last resort.
+
+### DSH ACP wire details that are easy to get wrong
+**Date**: 2026-09-27
+**Context**: Driving `dsh --profile acp` (stock `@agentclientprotocol/sdk` 1.4.0 surface) from Hydra.
+**Gotchas / non-obvious findings**:
+- Model option values are **opaque JSON strings**: `JSON.stringify([provider, model])` (e.g. `["deepseek-official","deepseek-v4-flash"]`). Match the requested route against the advertised `SessionConfigOption` groups and send the advertised value back — never build the string yourself.
+- Config option ids are exactly `model` and `reasoning_effort`.
+- Permission **option ids use hyphens** (`allow-once`, `reject-once`) while their **kinds use underscores** (`allow_once`, `reject_once`); any `optionId` other than `allow-once` counts as a rejection, so echo the id verbatim.
+- `session/resume` returns `{configOptions}` (no `sessionId`) and does **not** replay prior updates; `session/list` returns only `{sessionId, cwd}`.
+- `session/new` requires `mcpServers` (array) and rejects `additionalDirectories`; JSON-RPC batches are connection-fatal (`allowBatches: false`).
+- `session/request_permission` carries only `{ toolCallId }` — no title, so remember titles from the preceding `tool_call` update.
+
+### A piped stdin EOF is not always "quit"
+**Date**: 2026-09-27
+**Context**: The DSH bridge queues input typed before the ACP session is ready (Hydra sends the initial prompt ~1.5s after spawn, while `dsh` can take longer to boot).
+**Mistake**: Handling stdin `end` as an immediate shutdown discarded queued prompts: the drain ran before `session.ready` and `runPrompt` no-ops without a session, so the prompt was silently dropped and the bridge still exited 0.
+**Fix**: On EOF set an `inputClosed` flag and only drain once the session is ready (`drainAndExit()` guards on `session.ready`, then exits only when `inputClosed`). Verified by piping a prompt into the built bridge and asserting the answer reaches stdout.
+
+### A failed `npm install` can leave packages half-extracted — repair with `npm ci`
+**Date**: 2026-09-27
+**Context**: The first `npm install` in this workspace died part-way with `EPERM` on the npm cache. The retry reported success ("changed 835 packages"), but `@pierre/trees`, `@pierre/diffs` and `@rollup/rollup-win32-x64-msvc` contained only `package.json`, which surfaced as bogus `Cannot find module '@pierre/trees/react'` typecheck errors and a rollup load failure.
+**Mistake**: Trusting a second `npm install` to repair directories that already exist — npm treats them as installed and skips extraction.
+**Fix**: After any interrupted install run `npm ci` (it deletes `node_modules` first). Suspect this whenever `typecheck` suddenly reports missing subpath modules, and check that `node_modules/<pkg>/dist` actually exists before debugging code.
+
+### Electron-as-node writes NOTHING to a ConPTY — a silent blank tile
+**Date**: 2026-09-27
+**Context**: The DSH bridge ran as `process.execPath` + `ELECTRON_RUN_AS_NODE=1`. In the GUI the DSH tile stayed blank while the same bridge produced perfect output when run with piped stdio.
+**Mistake**: Assuming Electron's Node mode behaves like Node for terminal I/O. Hydra tiles are ConPTYs, and Electron's binary is a **GUI-subsystem** executable: in a ConPTY it starts, exits 0, and emits **zero bytes** (verified with `electron.exe -e "console.log('hi')"` in a node-pty PTY: 0 bytes; `node.exe` in the same harness: output). All other providers were unaffected because they *are* console applications.
+**Fix**: Run the bridge with a real Node (`where node`, validated with `node --version` so the Microsoft Store alias is rejected); keep `ELECTRON_RUN_AS_NODE` only as a last-resort fallback for piped/headless runs, and fail preflight when Node is missing. Any future provider that shells out must not assume Electron's runtime can talk to a PTY.
+
+### Stock Node cannot read inside `app.asar`, so unpack anything a child process runs
+**Date**: 2026-09-27
+**Context**: `out/main/dshBridge.js` is bundled into `app.asar`, and the bridge is executed by a **plain Node** process.
+**Mistake**: Electron can execute/require from an asar path (its fs is patched), which made the packaged path look fine — but that only holds for Electron-as-node. Stock Node fails, so the DSH tile would break only in packaged builds.
+**Fix**: Add `asarUnpack: [out/main/dshBridge.js]` to `electron-builder.yml` and rewrite the `app.asar` segment to `app.asar.unpacked` before spawning (`resolveBridgePath`), with a unit test covering both the dev and packaged shapes.
+
+### ACP committed messages have no trailing newline — the prompt redraw erased them
+**Date**: 2026-09-27
+**Context**: DSH sends whole committed assistant messages in `agent_message_chunk`, so the cursor is left mid-line. The bridge repaints its input line with `\r\u001b[K` after every chunk.
+**Mistake**: Repairing the prompt unconditionally wiped the message that had just been written — the tile showed `● DSH` followed by the prompt and no answer at all. The same bug would silently eat any partial line (tool output included).
+**Fix**: Track whether server output ended mid-line and emit `\n` before repainting (`refreshEditor()`); route every repaint through it instead of calling the editor directly.
+
+### DSH sessions are single-writer: one live handle blocks every resume
+**Date**: 2026-09-27
+**Context**: "Linking" (`session/resume`) existing DSH sessions failed with `-32603 Internal error`.
+**Mistake**: Assuming a format/version problem. The server's real explanation is in `error.data.details`: `session "<id>" is already owned by an active write handle` — the running `dsh web` process holds a handle for the sessions it knows about, and an **orphaned** `dsh --profile acp` holds them too. Sessions created by ACP itself (or by a profile whose process exited) resume fine, which is what made the failure look random.
+**Fix**: Surface `error.data.details` (plus a hint to close the other DSH instance) instead of "Internal error". Never assume resume works while another DSH front-end is running.
+
+### An orphaned ACP server is created when the PTY child is killed but the grandchild survives
+**Date**: 2026-09-27
+**Context**: The bridge spawns `cmd.exe /c dsh --profile acp`. Stopping an agent killed the shim and the bridge, leaving `node … --profile acp` alive forever — 12 accumulated during one test session, each holding a session write handle.
+**Mistake**: Assuming `child.kill()` (and a PTY kill) takes the tree down, and assuming the ACP server exits when its stdin closes: verified it does **not** (still alive 25s after `stdin.end()` while the parent kept the other pipes open). Orphans are also invisible to the UI while breaking future resumes.
+**Fix**: Three layers: `taskkill /F /T /PID` in the bridge's transport close (graceful exits), a `killTreeOnStop` provider flag so `AgentManager` takes the tree down on stop/restart/quit, and an `initialize` timeout raised to 90s because DSH resolves model capabilities (slow, rate-limitable provider catalog) during the handshake. When debugging DSH, always check `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` for stray `--profile acp` processes.
+
+### `replace_all` on an expression that also appears in the new function body = self-recursion
+**Date**: 2026-09-27
+**Context**: Introduced `refreshEditor()` wrapping `editor.refresh()`, and `describeAcpError()` wrapping `error instanceof Error ? error.message : String(error)`; both were then applied everywhere with a blind `replace_all`.
+**Mistake**: The pattern also matched the **inside** of the new helper, so each function called itself (`RangeError: Maximum call stack size exceeded`). Happened twice in one session.
+**Fix**: After a `replace_all`, re-read the helper you just introduced (or exclude it by editing before the rename). Prefer renaming the call sites one at a time when the new helper's body contains the old expression.

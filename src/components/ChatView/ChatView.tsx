@@ -12,6 +12,7 @@ import type { EditorTab } from '../EditorPanel/TabBar'
 import claudeIcon from '@/assets/icons/claude.svg'
 import codexIcon from '@/assets/icons/codex.svg'
 import opencodeIcon from '@/assets/icons/opencode.svg'
+import dshIcon from '@/assets/icons/dsh.svg'
 import styles from './ChatView.module.css'
 
 interface ChatViewProps {
@@ -400,7 +401,7 @@ function CodeBracketIcon() {
   )
 }
 
-const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon }
+const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon, dsh: dshIcon }
 
 function ProviderModelPill({ provider, model }: { provider: ProviderId; model: string }) {
   return (

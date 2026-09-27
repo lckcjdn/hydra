@@ -6,11 +6,12 @@ import { fuzzyScore } from '../../lib/fuzzy'
 import claudeIcon from '../../assets/icons/claude.svg'
 import codexIcon from '../../assets/icons/codex.svg'
 import opencodeIcon from '../../assets/icons/opencode.svg'
+import dshIcon from '../../assets/icons/dsh.svg'
 
-const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon }
+const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon, dsh: dshIcon }
 import styles from './NewAgentDialog.module.css'
 
-const PROVIDERS: ProviderId[] = ['claude', 'codex', 'opencode']
+const PROVIDERS: ProviderId[] = ['claude', 'codex', 'opencode', 'dsh']
 
 interface NewAgentDialogProps {
   defaultProvider: ProviderId

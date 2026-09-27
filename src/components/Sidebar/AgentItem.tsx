@@ -4,8 +4,9 @@ import type { ProviderId } from '@shared/types'
 import claudeIcon from '@/assets/icons/claude.svg'
 import codexIcon from '@/assets/icons/codex.svg'
 import opencodeIcon from '@/assets/icons/opencode.svg'
+import dshIcon from '@/assets/icons/dsh.svg'
 
-const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon }
+const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon, dsh: dshIcon }
 import styles from './AgentItem.module.css'
 
 interface AgentItemProps {

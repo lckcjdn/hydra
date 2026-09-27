@@ -1,4 +1,5 @@
 import { spawn as ptySpawn, IPty } from 'node-pty'
+import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
@@ -165,7 +166,7 @@ export class AgentManager extends EventEmitter {
       claudePath: null,
       version: null,
       error:
-        'No supported CLI found. Install Claude (https://claude.ai/download), Codex (npm install -g @openai/codex), or OpenCode (https://opencode.ai).'
+        'No supported CLI found. Install Claude (https://claude.ai/download), Codex (npm install -g @openai/codex), OpenCode (https://opencode.ai), or DSH (npm i -g @deepseek-ai/dsh).'
     }
   }
 
@@ -428,17 +429,46 @@ export class AgentManager extends EventEmitter {
     pty.kill(force ? 'SIGKILL' : 'SIGTERM')
   }
 
+  /**
+   * Take down the whole process tree for providers whose PTY child is a shell
+   * shim. Killing only the shim leaves the real CLI running: for DSH that
+   * orphaned `dsh --profile acp` keeps the ACP session's write handle, and the
+   * session then refuses to resume ("already owned by an active write handle").
+   */
+  private killProcessTree(managed: ManagedAgent): void {
+    if (process.platform !== 'win32') return
+    if (!managed.state.pid) return
+
+    const provider = getProvider(managed.state.provider)
+    if (!provider.killTreeOnStop) return
+
+    try {
+      spawn('taskkill', ['/F', '/T', '/PID', String(managed.state.pid)], {
+        stdio: 'ignore',
+        windowsHide: true
+      })
+        .on('error', () => undefined)
+        .unref()
+    } catch {
+      // Best effort: the normal PTY kill below still runs.
+    }
+  }
+
   private spawnProcess(managed: ManagedAgent): SpawnOutcome {
     if (this.countActiveAgents(managed.state.id) >= MAX_CONCURRENT_AGENTS_HARD_LIMIT) {
       return 'capped'
     }
 
     const provider = getProvider(managed.state.provider)
-    const rawCmd = this.providerPaths.get(managed.state.provider) || provider.command
-    const rawArgs = this.buildArgs(managed.state)
+    // Providers that ship their own runtime (DSH runs the ACP bridge through
+    // Electron's Node) return an exact executable instead of a PATH command.
+    const spawnSpec = provider.resolveSpawn?.(managed.state)
+    const rawCmd = spawnSpec?.command ?? this.providerPaths.get(managed.state.provider) ?? provider.command
+    const rawArgs = spawnSpec?.args ?? this.buildArgs(managed.state)
 
     const ptyEnv = {
       ...process.env,
+      ...(spawnSpec?.env ?? {}),
       TERM: 'xterm-256color',
       FORCE_COLOR: '1'
     }
@@ -667,6 +697,11 @@ export class AgentManager extends EventEmitter {
   private probeSessionIdFromCatalog(managed: ManagedAgent, options: { forceRefresh?: boolean } = {}): void {
     if (!managed.state.projectDir) return
 
+    // DSH announces its ACP session id in the tile banner (see
+    // providers.ts → sessionIdRegex), so guessing from the on-disk catalog
+    // could only ever attach the wrong session.
+    if (managed.state.provider === 'dsh') return
+
     try {
       const catalog = managed.state.provider === 'codex' ? this.codexSessionCatalog : this.sessionCatalog
       const sessions = catalog.listSessions({
@@ -765,6 +800,9 @@ export class AgentManager extends EventEmitter {
 
       managed.stopRequested = true
 
+      // Shims hide the real CLI from a PTY kill; take the tree down first.
+      this.killProcessTree(managed)
+
       // Graceful: send SIGTERM
       this.killPtyProcess(managed.pty, false)
 
@@ -825,6 +863,7 @@ export class AgentManager extends EventEmitter {
 
     // Kill existing process
     if (managed.pty) {
+      this.killProcessTree(managed)
       try {
         this.killPtyProcess(managed.pty, true)
       } catch {
@@ -1065,6 +1104,7 @@ export class AgentManager extends EventEmitter {
       for (const [, managed] of this.agents) {
         this.stopSessionDiscovery(managed)
         if (managed.pty) {
+          this.killProcessTree(managed)
           try {
             this.killPtyProcess(managed.pty, true)
           } catch {

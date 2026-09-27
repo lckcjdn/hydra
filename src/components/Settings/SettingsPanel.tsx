@@ -20,9 +20,10 @@ import { SkillsTab } from './SkillsTab'
 import claudeIcon from '../../assets/icons/claude.svg'
 import codexIcon from '../../assets/icons/codex.svg'
 import opencodeIcon from '../../assets/icons/opencode.svg'
+import dshIcon from '../../assets/icons/dsh.svg'
 import styles from './SettingsPanel.module.css'
 
-const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon }
+const PROVIDER_ICONS: Record<ProviderId, string> = { claude: claudeIcon, codex: codexIcon, opencode: opencodeIcon, dsh: dshIcon }
 
 type SectionId =
   | 'appearance'
@@ -36,7 +37,7 @@ type SectionId =
 
 const SECTIONS: Array<{ id: SectionId; label: string; keywords: string[] }> = [
   { id: 'appearance', label: 'Appearance', keywords: ['appearance', 'theme', 'color', 'view', 'chat', 'grid', 'sound', 'dark', 'light', 'midnight', 'terracotta', 'overlay', 'split', 'git panel', 'editor panel', 'side loader'] },
-  { id: 'agents', label: 'Agent Defaults', keywords: ['agent', 'provider', 'model', 'claude', 'codex', 'opencode', 'concurrent', 'max', 'yolo', 'project', 'directory'] },
+  { id: 'agents', label: 'Agent Defaults', keywords: ['agent', 'provider', 'model', 'claude', 'codex', 'opencode', 'dsh', 'deepseek', 'harness', 'concurrent', 'max', 'yolo', 'project', 'directory'] },
   { id: 'sessions', label: 'Session Import', keywords: ['session', 'import', 'limit', 'age', 'prefix', 'hidden'] },
   { id: 'remote', label: 'Remote Control', keywords: ['remote', 'control', 'timeout'] },
   { id: 'terminal', label: 'Terminal', keywords: ['terminal', 'shell', 'bash', 'zsh', 'pwsh', 'powershell', 'font', 'cursor', 'webgl', 'path', 'scrollback', 'background', 'lru', 'idle', 'lifecycle', 'cmd+j'] },
@@ -45,7 +46,7 @@ const SECTIONS: Array<{ id: SectionId; label: string; keywords: string[] }> = [
   { id: 'skills', label: 'Skills', keywords: ['skill', 'prompt'] }
 ]
 
-const PROVIDERS: ProviderId[] = ['claude', 'codex', 'opencode']
+const PROVIDERS: ProviderId[] = ['claude', 'codex', 'opencode', 'dsh']
 const THEMES: Array<{ id: ThemeId; label: string; description: string; swatches: [string, string] }> = [
   {
     id: 'dark',

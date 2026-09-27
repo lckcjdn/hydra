@@ -20,6 +20,7 @@ const PROVIDERS: { value: ProviderId; label: string }[] = [
   { value: 'claude', label: 'Claude' },
   { value: 'codex', label: 'Codex' },
   { value: 'opencode', label: 'OpenCode' },
+  { value: 'dsh', label: 'DSH' },
 ]
 
 const AGE_OPTIONS: { value: number; label: string }[] = [

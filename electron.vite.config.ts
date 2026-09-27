@@ -9,7 +9,11 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'electron/main.ts'),
-          daemon: resolve(__dirname, 'electron/daemon/index.ts')
+          daemon: resolve(__dirname, 'electron/daemon/index.ts'),
+          // Runs as a plain Node script inside a DSH agent tile (see
+          // electron/agents/providers.ts → dsh resolveSpawn). Must stay free of
+          // Electron imports so ELECTRON_RUN_AS_NODE can execute it.
+          dshBridge: resolve(__dirname, 'electron/agents/dsh/bridge.ts')
         }
       }
     },

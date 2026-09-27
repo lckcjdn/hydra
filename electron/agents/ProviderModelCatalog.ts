@@ -54,6 +54,11 @@ export class ProviderModelCatalog {
   async list(provider: ProviderId): Promise<ProviderModelOption[]> {
     if (provider === 'claude') return cloneModels(PROVIDER_MODELS.claude)
 
+    // DSH model routes are advertised by the ACP server per session; the static
+    // list keeps the dropdown usable offline, and the tile's `/model` command
+    // prints the live catalog.
+    if (provider === 'dsh') return cloneModels(PROVIDER_MODELS.dsh)
+
     if (provider === 'opencode') {
       return this.listOpenCode()
     }

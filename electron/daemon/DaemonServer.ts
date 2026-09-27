@@ -8,6 +8,7 @@ import { MAX_CONCURRENT_AGENTS_HARD_LIMIT } from '@shared/types'
 import type { ConfigStore } from '../config/ConfigStore'
 import type { SessionCatalog } from '../sessions/SessionCatalog'
 import type { CodexSessionCatalog } from '../sessions/CodexSessionCatalog'
+import type { DshSessionCatalog } from '../sessions/DshSessionCatalog'
 import type { HeadlessOrchestrator } from '../headless/HeadlessOrchestrator'
 import type { WorkspaceStore } from '../workspace/WorkspaceStore'
 import type { DaemonNotificationService } from './DaemonNotificationService'
@@ -63,6 +64,7 @@ interface DaemonServerOptions {
   configStore: ConfigStore
   sessionCatalog: SessionCatalog
   codexSessionCatalog: CodexSessionCatalog
+  dshSessionCatalog: DshSessionCatalog
   headlessOrchestrator: HeadlessOrchestrator
   workspaceStore: WorkspaceStore
   notificationService: DaemonNotificationService
@@ -80,6 +82,7 @@ export class DaemonServer {
   private readonly configStore: ConfigStore
   private readonly sessionCatalog: SessionCatalog
   private readonly codexSessionCatalog: CodexSessionCatalog
+  private readonly dshSessionCatalog: DshSessionCatalog
   private readonly headlessOrchestrator: HeadlessOrchestrator
   private readonly workspaceStore: WorkspaceStore
   private readonly notificationService: DaemonNotificationService
@@ -100,6 +103,7 @@ export class DaemonServer {
     this.configStore = options.configStore
     this.sessionCatalog = options.sessionCatalog
     this.codexSessionCatalog = options.codexSessionCatalog
+    this.dshSessionCatalog = options.dshSessionCatalog
     this.headlessOrchestrator = options.headlessOrchestrator
     this.workspaceStore = options.workspaceStore
     this.notificationService = options.notificationService
@@ -574,11 +578,23 @@ export class DaemonServer {
       if (method === 'GET' && path === '/sessions') {
         const config = this.configStore.get()
         const providerParam = url.searchParams.get('provider')
-        const provider: ProviderId = providerParam === 'codex' ? 'codex' : providerParam === 'opencode' ? 'opencode' : 'claude'
+        const provider: ProviderId =
+          providerParam === 'codex'
+            ? 'codex'
+            : providerParam === 'opencode'
+              ? 'opencode'
+              : providerParam === 'dsh'
+                ? 'dsh'
+                : 'claude'
         const limit = parseInt(url.searchParams.get('limit') || '0') || (config.sessionImportLimit > 0 ? config.sessionImportLimit : undefined)
         const maxAgeDays = parseInt(url.searchParams.get('maxAgeDays') || '0') || (config.sessionMaxAgeDays > 0 ? config.sessionMaxAgeDays : undefined)
         const projectPathPrefix = url.searchParams.get('projectPathPrefix') || config.sessionImportProjectPrefix || undefined
-        const catalog = provider === 'codex' ? this.codexSessionCatalog : this.sessionCatalog
+        const catalog =
+          provider === 'codex'
+            ? this.codexSessionCatalog
+            : provider === 'dsh'
+              ? this.dshSessionCatalog
+              : this.sessionCatalog
         const sessions = catalog.listSessions({
           limit,
           maxAgeDays,

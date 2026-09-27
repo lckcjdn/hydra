@@ -86,16 +86,33 @@ export class HeadlessOrchestrator extends EventEmitter {
 
     const provider = getProvider(payload.provider)
     const args = provider.buildHeadlessArgs(payload.model, payload.prompt, payload.resumeSessionId ?? null, payload.reasoningEffort)
+    // Providers that ship their own runtime (DSH's ACP bridge) return an exact
+    // executable + env instead of a PATH command.
+    const spawnSpec = provider.resolveHeadlessSpawn?.(
+      payload.model,
+      payload.prompt,
+      payload.resumeSessionId ?? null,
+      payload.reasoningEffort
+    )
 
     try {
       // On Windows, CLI tools may be .cmd wrappers — spawn through cmd.exe
-      const spawnCmd = process.platform === 'win32' ? 'cmd.exe' : provider.command
-      const spawnArgs = process.platform === 'win32' ? ['/c', provider.command, ...args] : args
+      const spawnCmd = spawnSpec
+        ? spawnSpec.command
+        : process.platform === 'win32'
+          ? 'cmd.exe'
+          : provider.command
+      const spawnArgs = spawnSpec
+        ? spawnSpec.args
+        : process.platform === 'win32'
+          ? ['/c', provider.command, ...args]
+          : args
       const child = spawn(spawnCmd, spawnArgs, {
         cwd: payload.projectDir,
         env: {
           ...process.env,
-          FORCE_COLOR: '0'
+          FORCE_COLOR: '0',
+          ...(spawnSpec?.env ?? {})
         }
       })
       managed.process = child
@@ -389,7 +406,7 @@ export class HeadlessOrchestrator extends EventEmitter {
       run.status === 'errored' ||
       run.status === 'canceled'
 
-    const validProviders = ['claude', 'codex', 'opencode']
+    const validProviders = ['claude', 'codex', 'opencode', 'dsh']
     const validProvider = run.provider === undefined || validProviders.includes(run.provider as string)
 
     return (

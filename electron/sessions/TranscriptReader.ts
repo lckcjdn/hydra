@@ -30,6 +30,11 @@ export function readTranscriptHistory(
   limit: number = MAX_MESSAGES,
   options: TranscriptReaderOptions = {}
 ): TranscriptMessage[] {
+  // DSH stores each session as a chain of independent Zstandard frames
+  // (`session.v3.jsonl.zstd`), so there is no line-readable transcript to
+  // replay here. Resuming the session over ACP restores the full context.
+  if (provider === 'dsh') return []
+
   const filePath = findTranscriptFile(sessionId, provider, options)
   if (!filePath) return []
 
