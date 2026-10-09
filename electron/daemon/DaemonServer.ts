@@ -15,6 +15,7 @@ import type { DaemonNotificationService } from './DaemonNotificationService'
 import type { HydraMcpServer } from '../mcp/McpServer'
 import type { SkillScanner } from '../skills/SkillScanner'
 import { readTranscriptHistory } from '../sessions/TranscriptReader'
+import type { OrchestrationService } from '../orchestration/OrchestrationService'
 import type { WsServerMessage } from './protocol'
 import type {
   AgentOutputPayload,
@@ -25,8 +26,20 @@ import type {
   StartHeadlessRunPayload,
   ProviderId,
   FreeTerminalLayout,
-  FreeTerminalGroup
+  FreeTerminalGroup,
+  CreateGroupPayload,
+  AddSessionToGroupPayload,
+  CreateTaskPayload,
+  AssignTaskPayload,
+  ReportProgressPayload,
+  CaptureCheckpointPayload,
+  QuotaMarkPayload,
+  HandoffPreparePayload,
+  HandoffAcceptPayload,
+  HandoffCompletePayload,
+  HandoffSyncBackPayload
 } from '@shared/types'
+import type { ObserveQuotaInput } from '../quota/QuotaManager'
 
 /** Return the appropriate shell and args for the current platform. */
 function getShellConfig(): { shell: string; shellArgs: string[] } {
@@ -70,6 +83,7 @@ interface DaemonServerOptions {
   notificationService: DaemonNotificationService
   mcpServer: HydraMcpServer | null
   skillScanner: SkillScanner
+  orchestration: OrchestrationService
   onShutdown: () => void
 }
 
@@ -88,6 +102,7 @@ export class DaemonServer {
   private readonly notificationService: DaemonNotificationService
   private readonly mcpServer: HydraMcpServer | null
   private readonly skillScanner: SkillScanner
+  private readonly orchestration: OrchestrationService
   private readonly onShutdown: () => void
   private readonly startedAt = Date.now()
   private testPty: IPty | null = null
@@ -109,6 +124,7 @@ export class DaemonServer {
     this.notificationService = options.notificationService
     this.mcpServer = options.mcpServer
     this.skillScanner = options.skillScanner
+    this.orchestration = options.orchestration
     this.onShutdown = options.onShutdown
   }
 
@@ -140,6 +156,8 @@ export class DaemonServer {
     this.agentManager.on('status', (payload: AgentStatusPayload) => {
       this.flushPendingAgentOutput()
       this.persistWorkspace()
+      // Keep linked orchestration session lifecycles honest against live agents.
+      this.orchestration.reconcileAgents(this.agentManager.list())
       this.broadcast({ type: 'agent:status', payload })
     })
 
@@ -385,6 +403,10 @@ export class DaemonServer {
     } catch {
       // Best-effort
     }
+  }
+
+  private broadcastOrchestration(): void {
+    this.broadcast({ type: 'orchestration:changed', payload: this.orchestration.snapshot() })
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -839,6 +861,135 @@ export class DaemonServer {
           exited: e.exited
         }))
         return this.json(res, 200, list)
+      }
+
+      // ── Orchestration (Agent Groups / Sessions / Quota / Handoff) ───────
+      if (method === 'GET' && path === '/orchestration') {
+        return this.json(res, 200, this.orchestration.snapshot())
+      }
+
+      if (method === 'GET' && path === '/orchestration/events') {
+        const groupId = url.searchParams.get('groupId') || undefined
+        const limit = parseInt(url.searchParams.get('limit') || '200', 10) || 200
+        return this.json(res, 200, this.orchestration.listEvents(groupId ?? null, limit))
+      }
+
+      if (method === 'POST' && path === '/orchestration/groups') {
+        const body = await this.readBody<CreateGroupPayload>(req)
+        const group = this.orchestration.createGroup(body)
+        this.broadcastOrchestration()
+        return this.json(res, 201, group)
+      }
+
+      const removeGroupMatch = path.match(/^\/orchestration\/groups\/([^/]+)$/)
+      if (method === 'DELETE' && removeGroupMatch) {
+        const removed = this.orchestration.removeGroup(decodeURIComponent(removeGroupMatch[1]))
+        this.broadcastOrchestration()
+        return this.json(res, 200, { removed })
+      }
+
+      const setManagerMatch = path.match(/^\/orchestration\/groups\/([^/]+)\/manager$/)
+      if (method === 'POST' && setManagerMatch) {
+        const body = await this.readBody<{ sessionId: string }>(req)
+        const group = this.orchestration.setManager(decodeURIComponent(setManagerMatch[1]), body.sessionId)
+        this.broadcastOrchestration()
+        return this.json(res, 200, group)
+      }
+
+      if (method === 'POST' && path === '/orchestration/sessions') {
+        const body = await this.readBody<AddSessionToGroupPayload>(req)
+        const session = this.orchestration.addSession(body)
+        this.broadcastOrchestration()
+        return this.json(res, 201, session)
+      }
+
+      const suspendMatch = path.match(/^\/orchestration\/sessions\/([^/]+)\/suspend$/)
+      if (method === 'POST' && suspendMatch) {
+        const session = this.orchestration.suspendSession(decodeURIComponent(suspendMatch[1]))
+        this.broadcastOrchestration()
+        return this.json(res, 200, session)
+      }
+
+      const resumeMatch = path.match(/^\/orchestration\/sessions\/([^/]+)\/resume$/)
+      if (method === 'POST' && resumeMatch) {
+        const session = this.orchestration.resumeSession(decodeURIComponent(resumeMatch[1]))
+        this.broadcastOrchestration()
+        return this.json(res, 200, session)
+      }
+
+      if (method === 'POST' && path === '/orchestration/tasks') {
+        const body = await this.readBody<CreateTaskPayload>(req)
+        const task = this.orchestration.createTask(body)
+        this.broadcastOrchestration()
+        return this.json(res, 201, task)
+      }
+
+      const assignTaskMatch = path.match(/^\/orchestration\/tasks\/([^/]+)\/assign$/)
+      if (method === 'POST' && assignTaskMatch) {
+        const body = await this.readBody<AssignTaskPayload>(req)
+        const task = this.orchestration.assignTask({ ...body, taskId: decodeURIComponent(assignTaskMatch[1]) })
+        this.broadcastOrchestration()
+        return this.json(res, 200, task)
+      }
+
+      const progressMatch = path.match(/^\/orchestration\/tasks\/([^/]+)\/progress$/)
+      if (method === 'POST' && progressMatch) {
+        const body = await this.readBody<ReportProgressPayload>(req)
+        const task = this.orchestration.reportProgress({ ...body, taskId: decodeURIComponent(progressMatch[1]) })
+        this.broadcastOrchestration()
+        return this.json(res, 200, task)
+      }
+
+      if (method === 'POST' && path === '/orchestration/checkpoints') {
+        const body = await this.readBody<CaptureCheckpointPayload>(req)
+        const checkpoint = this.orchestration.captureCheckpoint(body)
+        this.broadcastOrchestration()
+        return this.json(res, 201, checkpoint)
+      }
+
+      if (method === 'POST' && path === '/orchestration/quota/mark') {
+        const body = await this.readBody<QuotaMarkPayload>(req)
+        const pool = this.orchestration.markQuota(body)
+        this.broadcastOrchestration()
+        return this.json(res, 200, pool)
+      }
+
+      if (method === 'POST' && path === '/orchestration/quota/observe') {
+        const body = await this.readBody<ObserveQuotaInput>(req)
+        const pool = this.orchestration.observeQuota(body)
+        this.broadcastOrchestration()
+        return this.json(res, 200, pool)
+      }
+
+      if (method === 'POST' && path === '/orchestration/handoffs/prepare') {
+        const body = await this.readBody<HandoffPreparePayload>(req)
+        const handoff = this.orchestration.prepareHandoff(body)
+        this.broadcastOrchestration()
+        return this.json(res, 201, handoff)
+      }
+
+      const acceptHandoffMatch = path.match(/^\/orchestration\/handoffs\/([^/]+)\/accept$/)
+      if (method === 'POST' && acceptHandoffMatch) {
+        const body = await this.readBody<HandoffAcceptPayload>(req)
+        const handoff = this.orchestration.acceptHandoff({ ...body, handoffId: decodeURIComponent(acceptHandoffMatch[1]) })
+        this.broadcastOrchestration()
+        return this.json(res, 200, handoff)
+      }
+
+      const completeHandoffMatch = path.match(/^\/orchestration\/handoffs\/([^/]+)\/complete$/)
+      if (method === 'POST' && completeHandoffMatch) {
+        const body = await this.readBody<HandoffCompletePayload>(req)
+        const handoff = this.orchestration.completeHandoff({ ...body, handoffId: decodeURIComponent(completeHandoffMatch[1]) })
+        this.broadcastOrchestration()
+        return this.json(res, 200, handoff)
+      }
+
+      const syncBackMatch = path.match(/^\/orchestration\/handoffs\/([^/]+)\/sync-back$/)
+      if (method === 'POST' && syncBackMatch) {
+        const body = await this.readBody<HandoffSyncBackPayload>(req)
+        const handoff = this.orchestration.syncBackHandoff({ ...body, handoffId: decodeURIComponent(syncBackMatch[1]) })
+        this.broadcastOrchestration()
+        return this.json(res, 200, handoff)
       }
 
       // 404

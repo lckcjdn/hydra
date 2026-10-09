@@ -18,8 +18,21 @@ import type {
   McpServerStatus,
   SkillScanResult,
   SkillTogglePayload,
-  FreeTerminalLayout
+  FreeTerminalLayout,
+  OrchestrationSnapshot,
+  CreateGroupPayload,
+  AddSessionToGroupPayload,
+  CreateTaskPayload,
+  ReportProgressPayload,
+  CaptureCheckpointPayload,
+  QuotaMarkPayload,
+  HandoffPreparePayload,
+  HandoffAcceptPayload,
+  HandoffCompletePayload,
+  HandoffSyncBackPayload,
+  OrchestrationEvent
 } from '@shared/types'
+import type { ObserveQuotaInput } from '../quota/QuotaManager'
 import type { DaemonHealthResponse, WsServerMessage } from './protocol'
 
 const WS_RECONNECT_INTERVAL = 2000
@@ -124,6 +137,9 @@ export class DaemonClient extends EventEmitter {
             break
           case 'free-terminal:layout-changed':
             this.emit('free-terminal:layout-changed', msg.payload.projectDir, msg.payload.layout)
+            break
+          case 'orchestration:changed':
+            this.emit('orchestration:changed', msg.payload)
             break
         }
       } catch {
@@ -365,6 +381,85 @@ export class DaemonClient extends EventEmitter {
 
   async listFreeTerminals(): Promise<Array<{ terminalId: string; projectDir: string; label: string; lastActivityAt: number; lastInputAt: number; exited: boolean }>> {
     return await this.httpRequest('GET', '/free-terminal/list')
+  }
+
+  // ── Orchestration ───────────────────────────────────────────────────────
+
+  async getOrchestrationSnapshot(): Promise<OrchestrationSnapshot> {
+    return this.httpRequest('GET', '/orchestration')
+  }
+
+  async listOrchestrationEvents(groupId?: string, limit?: number): Promise<OrchestrationEvent[]> {
+    const params = new URLSearchParams()
+    if (groupId) params.set('groupId', groupId)
+    if (limit) params.set('limit', String(limit))
+    const qs = params.toString()
+    return this.httpRequest('GET', `/orchestration/events${qs ? '?' + qs : ''}`)
+  }
+
+  async createGroup(payload: CreateGroupPayload) {
+    return this.post('/orchestration/groups', payload)
+  }
+
+  async removeGroup(groupId: string): Promise<boolean> {
+    const result = await this.httpRequest('DELETE', `/orchestration/groups/${encodeURIComponent(groupId)}`)
+    return result?.removed ?? false
+  }
+
+  async setGroupManager(groupId: string, sessionId: string) {
+    return this.post(`/orchestration/groups/${encodeURIComponent(groupId)}/manager`, { sessionId })
+  }
+
+  async addSessionToGroup(payload: AddSessionToGroupPayload) {
+    return this.post('/orchestration/sessions', payload)
+  }
+
+  async suspendSession(sessionId: string) {
+    return this.post(`/orchestration/sessions/${encodeURIComponent(sessionId)}/suspend`)
+  }
+
+  async resumeSession(sessionId: string) {
+    return this.post(`/orchestration/sessions/${encodeURIComponent(sessionId)}/resume`)
+  }
+
+  async createTask(payload: CreateTaskPayload) {
+    return this.post('/orchestration/tasks', payload)
+  }
+
+  async assignTask(taskId: string, sessionId: string) {
+    return this.post(`/orchestration/tasks/${encodeURIComponent(taskId)}/assign`, { sessionId })
+  }
+
+  async reportTaskProgress(taskId: string, payload: Omit<ReportProgressPayload, 'taskId'>) {
+    return this.post(`/orchestration/tasks/${encodeURIComponent(taskId)}/progress`, payload)
+  }
+
+  async captureCheckpoint(payload: CaptureCheckpointPayload) {
+    return this.post('/orchestration/checkpoints', payload)
+  }
+
+  async markQuota(payload: QuotaMarkPayload) {
+    return this.post('/orchestration/quota/mark', payload)
+  }
+
+  async observeQuota(payload: ObserveQuotaInput) {
+    return this.post('/orchestration/quota/observe', payload)
+  }
+
+  async prepareHandoff(payload: HandoffPreparePayload) {
+    return this.post('/orchestration/handoffs/prepare', payload)
+  }
+
+  async acceptHandoff(handoffId: string, toSessionId: string) {
+    return this.post(`/orchestration/handoffs/${encodeURIComponent(handoffId)}/accept`, { toSessionId })
+  }
+
+  async completeHandoff(handoffId: string, payload: Omit<HandoffCompletePayload, 'handoffId'>) {
+    return this.post(`/orchestration/handoffs/${encodeURIComponent(handoffId)}/complete`, payload)
+  }
+
+  async syncBackHandoff(handoffId: string, payload: Omit<HandoffSyncBackPayload, 'handoffId'>) {
+    return this.post(`/orchestration/handoffs/${encodeURIComponent(handoffId)}/sync-back`, payload)
   }
 
   // ── Shutdown ────────────────────────────────────────────────────────────

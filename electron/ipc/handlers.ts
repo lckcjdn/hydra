@@ -1031,6 +1031,161 @@ export function registerIpcHandlers(
     return getDaemonClient().toggleSkill(skillToggleSchema.parse(payload))
   })
 
+  // ── Orchestration (Agent Groups / Sessions / Quota / Handoff) ─────────────
+
+  const orchestrationIdSchema = z.string().trim().min(1).max(128)
+  const createGroupSchema = z.object({
+    name: z.string().trim().min(1).max(120),
+    projectRefs: z.array(z.string().max(4096)).optional(),
+    parentGroupId: z.string().max(128).nullable().optional()
+  })
+  const addSessionSchema = z.object({
+    groupId: orchestrationIdSchema,
+    provider: providerSchema,
+    nativeSessionId: z.string().max(256).nullable().optional(),
+    cwd: z.string().min(1).max(4096),
+    projectRef: z.string().min(1).max(4096),
+    role: z.enum(['manager', 'planner', 'worker']),
+    agentId: z.string().max(128).nullable().optional(),
+    quotaPoolId: z.string().max(128).nullable().optional()
+  })
+  const createTaskSchema = z.object({
+    groupId: orchestrationIdSchema,
+    goal: z.string().trim().min(1).max(4000),
+    acceptanceCriteria: z.array(z.string().max(1000)).optional()
+  })
+  const reportProgressSchema = z.object({
+    note: z.string().max(4000),
+    completed: z.array(z.string().max(1000)).optional(),
+    artifacts: z.array(z.string().max(4096)).optional()
+  })
+  const captureCheckpointSchema = z.object({
+    sessionId: orchestrationIdSchema,
+    taskId: orchestrationIdSchema.nullable().optional(),
+    completed: z.array(z.string().max(1000)).optional(),
+    nextSteps: z.array(z.string().max(1000)).optional(),
+    decisions: z.array(z.string().max(1000)).optional(),
+    gitBaseCommit: z.string().max(128).nullable().optional(),
+    branch: z.string().max(256).nullable().optional(),
+    dirtyPaths: z.array(z.string().max(4096)).optional(),
+    artifacts: z.array(z.string().max(4096)).optional()
+  })
+  const quotaMarkSchema = z.object({
+    poolId: orchestrationIdSchema,
+    availability: z.enum(['available', 'degraded', 'blocked', 'unknown']),
+    resetAt: z.string().max(64).nullable().optional(),
+    source: z.enum(['official', 'cli_signal', 'manual', 'estimated', 'unknown']).optional(),
+    confidence: z.enum(['high', 'medium', 'low']).optional()
+  })
+  const quotaObserveSchema = z.object({
+    provider: providerSchema,
+    accountAlias: z.string().trim().min(1).max(128),
+    code: z.string().max(64).optional(),
+    message: z.string().max(4000).optional(),
+    stderr: z.string().max(20000).optional()
+  })
+  const handoffPrepareSchema = z.object({
+    taskId: orchestrationIdSchema,
+    fromSessionId: orchestrationIdSchema,
+    materials: z.array(z.string().max(4096)).optional()
+  })
+  const handoffCompleteSchema = z.object({
+    artifacts: z.array(z.string().max(4096)).optional()
+  })
+  const handoffSyncBackSchema = z.object({
+    summary: z.string().min(1).max(8000)
+  })
+
+  ipcMain.handle(IPC.ORCH_GET_STATE, async () => {
+    return daemonClient ? daemonClient.getOrchestrationSnapshot() : null
+  })
+
+  ipcMain.handle(IPC.ORCH_EVENTS_LIST, async (_event, groupId?: string, limit?: number) => {
+    return getDaemonClient().listOrchestrationEvents(groupId, limit)
+  })
+
+  ipcMain.handle(IPC.ORCH_CREATE_GROUP, async (_event, payload: unknown) => {
+    return getDaemonClient().createGroup(createGroupSchema.parse(payload))
+  })
+
+  ipcMain.handle(IPC.ORCH_REMOVE_GROUP, async (_event, groupId: string) => {
+    return getDaemonClient().removeGroup(orchestrationIdSchema.parse(groupId))
+  })
+
+  ipcMain.handle(IPC.ORCH_ADD_SESSION, async (_event, payload: unknown) => {
+    return getDaemonClient().addSessionToGroup(addSessionSchema.parse(payload))
+  })
+
+  ipcMain.handle(IPC.ORCH_SET_MANAGER, async (_event, groupId: string, sessionId: string) => {
+    return getDaemonClient().setGroupManager(
+      orchestrationIdSchema.parse(groupId),
+      orchestrationIdSchema.parse(sessionId)
+    )
+  })
+
+  ipcMain.handle(IPC.ORCH_SUSPEND_SESSION, async (_event, sessionId: string) => {
+    return getDaemonClient().suspendSession(orchestrationIdSchema.parse(sessionId))
+  })
+
+  ipcMain.handle(IPC.ORCH_RESUME_SESSION, async (_event, sessionId: string) => {
+    return getDaemonClient().resumeSession(orchestrationIdSchema.parse(sessionId))
+  })
+
+  ipcMain.handle(IPC.ORCH_CREATE_TASK, async (_event, payload: unknown) => {
+    return getDaemonClient().createTask(createTaskSchema.parse(payload))
+  })
+
+  ipcMain.handle(IPC.ORCH_ASSIGN_TASK, async (_event, taskId: string, sessionId: string) => {
+    return getDaemonClient().assignTask(
+      orchestrationIdSchema.parse(taskId),
+      orchestrationIdSchema.parse(sessionId)
+    )
+  })
+
+  ipcMain.handle(IPC.ORCH_REPORT_PROGRESS, async (_event, taskId: string, payload: unknown) => {
+    return getDaemonClient().reportTaskProgress(
+      orchestrationIdSchema.parse(taskId),
+      reportProgressSchema.parse(payload)
+    )
+  })
+
+  ipcMain.handle(IPC.ORCH_CAPTURE_CHECKPOINT, async (_event, payload: unknown) => {
+    return getDaemonClient().captureCheckpoint(captureCheckpointSchema.parse(payload))
+  })
+
+  ipcMain.handle(IPC.ORCH_QUOTA_MARK, async (_event, payload: unknown) => {
+    return getDaemonClient().markQuota(quotaMarkSchema.parse(payload))
+  })
+
+  ipcMain.handle(IPC.ORCH_QUOTA_OBSERVE, async (_event, payload: unknown) => {
+    return getDaemonClient().observeQuota(quotaObserveSchema.parse(payload))
+  })
+
+  ipcMain.handle(IPC.ORCH_HANDOFF_PREPARE, async (_event, payload: unknown) => {
+    return getDaemonClient().prepareHandoff(handoffPrepareSchema.parse(payload))
+  })
+
+  ipcMain.handle(IPC.ORCH_HANDOFF_ACCEPT, async (_event, handoffId: string, toSessionId: string) => {
+    return getDaemonClient().acceptHandoff(
+      orchestrationIdSchema.parse(handoffId),
+      orchestrationIdSchema.parse(toSessionId)
+    )
+  })
+
+  ipcMain.handle(IPC.ORCH_HANDOFF_COMPLETE, async (_event, handoffId: string, payload: unknown) => {
+    return getDaemonClient().completeHandoff(
+      orchestrationIdSchema.parse(handoffId),
+      handoffCompleteSchema.parse(payload)
+    )
+  })
+
+  ipcMain.handle(IPC.ORCH_HANDOFF_SYNC_BACK, async (_event, handoffId: string, payload: unknown) => {
+    return getDaemonClient().syncBackHandoff(
+      orchestrationIdSchema.parse(handoffId),
+      handoffSyncBackSchema.parse(payload)
+    )
+  })
+
   // ── Test Terminal (preflight) ───────────────────────────────────────────
 
   daemonClient?.on('test-terminal:output', (data: string) => {

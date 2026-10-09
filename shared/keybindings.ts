@@ -26,6 +26,7 @@ export type HydraCommandId =
   | 'remote-control'
   | 'export-diagnostics'
   | 'open-keybindings-file'
+  | 'agent-groups'
 
 export interface KeybindingRule {
   command: HydraCommandId
@@ -72,7 +73,8 @@ const COMMAND_DEFINITIONS = [
   { id: 'headless', label: 'Headless Runs', category: 'Panels', showInPalette: true },
   { id: 'remote-control', label: 'Remote Control', category: 'Panels', showInPalette: true },
   { id: 'export-diagnostics', label: 'Export Diagnostics', category: 'Actions', showInPalette: true },
-  { id: 'open-keybindings-file', label: 'Open Keybindings File', category: 'Actions', showInPalette: true }
+  { id: 'open-keybindings-file', label: 'Open Keybindings File', category: 'Actions', showInPalette: true },
+  { id: 'agent-groups', label: 'Agent Groups', category: 'Panels', showInShortcuts: true, showInPalette: true }
 ] as const satisfies readonly KeybindingCommandDefinition[]
 
 export const KEYBINDING_COMMANDS: KeybindingCommandDefinition[] = [...COMMAND_DEFINITIONS]
@@ -106,7 +108,8 @@ export const DEFAULT_KEYBINDINGS: KeybindingRule[] = [
   { command: 'git-panel', keys: 'mod+g' },
   { command: 'usage-dashboard', keys: 'mod+u' },
   { command: 'updates', keys: 'mod+shift+u' },
-  { command: 'close-dialogs', keys: 'escape' }
+  { command: 'close-dialogs', keys: 'escape' },
+  { command: 'agent-groups', keys: 'mod+shift+g' }
 ]
 
 function keybindingCommandIds(): HydraCommandId[] {

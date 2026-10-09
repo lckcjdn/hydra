@@ -23,6 +23,7 @@ import { DaemonServer } from './DaemonServer'
 import { writeLockFile, removeLockFile } from './lock'
 import { HydraMcpServer } from '../mcp/McpServer'
 import { SkillScanner } from '../skills/SkillScanner'
+import { OrchestrationService } from '../orchestration/OrchestrationService'
 import { getDefaultModelForProvider } from '@shared/types'
 import { fixPath } from '../util/fix-path'
 
@@ -90,6 +91,7 @@ async function main(): Promise<void> {
   })
   const headlessOrchestrator = new HeadlessOrchestrator(join(userDataPath, 'headless-runs'))
   const notificationService = new DaemonNotificationService()
+  const orchestration = new OrchestrationService(userDataPath)
 
   // Restore workspace agents
   const config = configStore.get()
@@ -158,7 +160,7 @@ async function main(): Promise<void> {
   // Start MCP server
   let mcpServer: HydraMcpServer | null = null
   try {
-    mcpServer = new HydraMcpServer(agentManager, userDataPath)
+    mcpServer = new HydraMcpServer(agentManager, userDataPath, orchestration)
     mcpServer.setNotificationService(notificationService)
     await mcpServer.start()
     const status = mcpServer.getStatus()
@@ -195,6 +197,7 @@ async function main(): Promise<void> {
     notificationService,
     mcpServer,
     skillScanner,
+    orchestration,
     onShutdown: shutdown
   })
 

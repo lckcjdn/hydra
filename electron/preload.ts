@@ -39,7 +39,24 @@ import type {
   EditorId,
   RemoteControlState,
   SkillScanResult,
-  SkillTogglePayload
+  SkillTogglePayload,
+  OrchestrationSnapshot,
+  OrchestrationEvent,
+  AgentGroup,
+  HarnessSession,
+  TaskAssignment,
+  QuotaPool,
+  SessionCheckpoint,
+  HandoffRecord,
+  CreateGroupPayload,
+  AddSessionToGroupPayload,
+  CreateTaskPayload,
+  ReportProgressPayload,
+  CaptureCheckpointPayload,
+  QuotaMarkPayload,
+  HandoffPreparePayload,
+  HandoffCompletePayload,
+  HandoffSyncBackPayload
 } from '@shared/types'
 
 export type HydraAPI = typeof hydraApi
@@ -359,6 +376,50 @@ const hydraApi = {
     const handler = (_event: Electron.IpcRendererEvent, projectDir: string, layout: import('../shared/types').FreeTerminalLayout) => callback(projectDir, layout)
     ipcRenderer.on(IPC.FREE_TERMINAL_LAYOUT_CHANGED, handler)
     return () => { ipcRenderer.removeListener(IPC.FREE_TERMINAL_LAYOUT_CHANGED, handler) }
+  },
+
+  // Orchestration (Agent Groups / Sessions / Quota / Handoff)
+  getOrchestrationState: (): Promise<OrchestrationSnapshot | null> =>
+    ipcRenderer.invoke(IPC.ORCH_GET_STATE),
+  listOrchestrationEvents: (groupId?: string, limit?: number): Promise<OrchestrationEvent[]> =>
+    ipcRenderer.invoke(IPC.ORCH_EVENTS_LIST, groupId, limit),
+  createGroup: (payload: CreateGroupPayload): Promise<AgentGroup> =>
+    ipcRenderer.invoke(IPC.ORCH_CREATE_GROUP, payload),
+  removeGroup: (groupId: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.ORCH_REMOVE_GROUP, groupId),
+  addSessionToGroup: (payload: AddSessionToGroupPayload): Promise<HarnessSession> =>
+    ipcRenderer.invoke(IPC.ORCH_ADD_SESSION, payload),
+  setGroupManager: (groupId: string, sessionId: string): Promise<AgentGroup> =>
+    ipcRenderer.invoke(IPC.ORCH_SET_MANAGER, groupId, sessionId),
+  suspendSession: (sessionId: string): Promise<HarnessSession> =>
+    ipcRenderer.invoke(IPC.ORCH_SUSPEND_SESSION, sessionId),
+  resumeSession: (sessionId: string): Promise<HarnessSession> =>
+    ipcRenderer.invoke(IPC.ORCH_RESUME_SESSION, sessionId),
+  createOrchTask: (payload: CreateTaskPayload): Promise<TaskAssignment> =>
+    ipcRenderer.invoke(IPC.ORCH_CREATE_TASK, payload),
+  assignTask: (taskId: string, sessionId: string): Promise<TaskAssignment> =>
+    ipcRenderer.invoke(IPC.ORCH_ASSIGN_TASK, taskId, sessionId),
+  reportTaskProgress: (taskId: string, payload: Omit<ReportProgressPayload, 'taskId'>): Promise<TaskAssignment> =>
+    ipcRenderer.invoke(IPC.ORCH_REPORT_PROGRESS, taskId, payload),
+  captureCheckpoint: (payload: CaptureCheckpointPayload): Promise<SessionCheckpoint> =>
+    ipcRenderer.invoke(IPC.ORCH_CAPTURE_CHECKPOINT, payload),
+  markQuota: (payload: QuotaMarkPayload): Promise<QuotaPool> =>
+    ipcRenderer.invoke(IPC.ORCH_QUOTA_MARK, payload),
+  observeQuota: (payload: { provider: import('../shared/types').ProviderId; accountAlias: string; code?: string; message?: string; stderr?: string }): Promise<QuotaPool | null> =>
+    ipcRenderer.invoke(IPC.ORCH_QUOTA_OBSERVE, payload),
+  prepareHandoff: (payload: HandoffPreparePayload): Promise<HandoffRecord> =>
+    ipcRenderer.invoke(IPC.ORCH_HANDOFF_PREPARE, payload),
+  acceptHandoff: (handoffId: string, toSessionId: string): Promise<HandoffRecord> =>
+    ipcRenderer.invoke(IPC.ORCH_HANDOFF_ACCEPT, handoffId, toSessionId),
+  completeHandoff: (handoffId: string, payload: Omit<HandoffCompletePayload, 'handoffId'>): Promise<HandoffRecord> =>
+    ipcRenderer.invoke(IPC.ORCH_HANDOFF_COMPLETE, handoffId, payload),
+  syncBackHandoff: (handoffId: string, payload: Omit<HandoffSyncBackPayload, 'handoffId'>): Promise<HandoffRecord> =>
+    ipcRenderer.invoke(IPC.ORCH_HANDOFF_SYNC_BACK, handoffId, payload),
+  onOrchestrationChange: (callback: (snapshot: OrchestrationSnapshot) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: OrchestrationSnapshot) =>
+      callback(snapshot)
+    ipcRenderer.on(IPC.ORCH_ON_CHANGE, handler)
+    return () => { ipcRenderer.removeListener(IPC.ORCH_ON_CHANGE, handler) }
   }
 }
 

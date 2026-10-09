@@ -22,6 +22,7 @@ interface SidebarProps {
   onWidthChange: (width: number) => void
   sessionMaxAgeDays: number
   defaultEditor?: EditorId
+  onOpenGroups?: () => void
 }
 
 const MIN_WIDTH = 200
@@ -39,7 +40,8 @@ export function Sidebar({
   width,
   onWidthChange,
   sessionMaxAgeDays,
-  defaultEditor = 'vscode'
+  defaultEditor = 'vscode',
+  onOpenGroups
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set(projectGroups.map((g) => g.projectDir)))
@@ -253,10 +255,18 @@ export function Sidebar({
 
       <div className={styles.footer}>
         <div className={styles.divider} />
-        <button className={styles.newAgentBtn} onClick={onNewAgent}>
-          <PlusIcon />
-          New Agent
-        </button>
+        <div className={styles.footerButtons}>
+          <button className={styles.newAgentBtn} onClick={onNewAgent}>
+            <PlusIcon />
+            New Agent
+          </button>
+          {onOpenGroups && (
+            <button className={styles.secondaryBtn} onClick={onOpenGroups}>
+              <LayersIcon />
+              Groups
+            </button>
+          )}
+        </div>
       </div>
 
       <div
@@ -272,6 +282,16 @@ function PlusIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="12" y1="5" x2="12" y2="19" />
       <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  )
+}
+
+function LayersIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 2 2 7l10 5 10-5-10-5z" />
+      <path d="M2 17l10 5 10-5" />
+      <path d="M2 12l10 5 10-5" />
     </svg>
   )
 }

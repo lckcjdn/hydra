@@ -236,6 +236,12 @@ app.whenReady().then(async () => {
       })
     })
 
+    daemonClient.on('orchestration:changed', (snapshot) => {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        win.webContents.send(IPC.ORCH_ON_CHANGE, snapshot)
+      })
+    })
+
     // Remote control service
     const remoteControlConfig = configStore.get()
     remoteControlService = new RemoteControlService(

@@ -17,6 +17,7 @@ import { GitPanel } from './components/GitPanel/GitPanel'
 import { EditorOverlay } from './components/EditorPanel/EditorOverlay'
 import { RemoteControlModal } from './components/RemoteControl/RemoteControlModal'
 import { PreflightTestModal } from './components/PreflightTestModal/PreflightTestModal'
+import { AgentGroupsPanel } from './components/AgentGroups/AgentGroupsPanel'
 import { useAgents } from './hooks/useAgents'
 import { useConfig } from './hooks/useConfig'
 import { TerminalConfigContext, deriveTerminalConfig } from './hooks/useTerminalConfig'
@@ -155,6 +156,7 @@ export default function App() {
   const [showFileSearch, setShowFileSearch] = useState(false)
   const [showCommandPalette, setShowCommandPalette] = useState(false)
   const [showGitPanel, setShowGitPanel] = useState(false)
+  const [showAgentGroups, setShowAgentGroups] = useState(false)
   const [freeTerminalOpen, setFreeTerminalOpen] = useState(false)
   const [chatInputHidden, setChatInputHidden] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -341,6 +343,7 @@ export default function App() {
     if (showUsageDashboard) setShowUsageDashboard(false)
     if (showUpdatePanel) setShowUpdatePanel(false)
     if (showGitPanel) setShowGitPanel(false)
+    if (showAgentGroups) setShowAgentGroups(false)
     if (showYoloConfirm) setShowYoloConfirm(false)
     if (showPreflightGate) setShowPreflightGate(false)
     if (showShortcuts) setShowShortcuts(false)
@@ -350,6 +353,7 @@ export default function App() {
     showCommandPalette,
     showFileSearch,
     showGitPanel,
+    showAgentGroups,
     showHeadless,
     showNewAgent,
     showPreflightGate,
@@ -465,6 +469,9 @@ export default function App() {
           return true
         case 'git-panel':
           setShowGitPanel((prev) => !prev)
+          return true
+        case 'agent-groups':
+          setShowAgentGroups((prev) => !prev)
           return true
         case 'usage-dashboard':
           setShowUsageDashboard(true)
@@ -734,6 +741,7 @@ export default function App() {
               onWidthChange={setSidebarWidth}
               sessionMaxAgeDays={config.sessionMaxAgeDays}
               defaultEditor={config.defaultEditor}
+              onOpenGroups={() => setShowAgentGroups(true)}
             />
           )
         )}
@@ -903,6 +911,10 @@ export default function App() {
         <UsageDashboard
           onClose={() => setShowUsageDashboard(false)}
         />
+      )}
+
+      {showAgentGroups && (
+        <AgentGroupsPanel onClose={() => setShowAgentGroups(false)} />
       )}
 
       {showUpdatePanel && (

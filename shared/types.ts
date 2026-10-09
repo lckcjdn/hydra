@@ -400,7 +400,28 @@ export const IPC = {
   FREE_TERMINAL_LIST: 'free-terminal:list',
   FREE_TERMINAL_LAYOUT: 'free-terminal:layout',
   FREE_TERMINAL_ACTIVATE: 'free-terminal:activate',
-  FREE_TERMINAL_LAYOUT_CHANGED: 'free-terminal:layout-changed'
+  FREE_TERMINAL_LAYOUT_CHANGED: 'free-terminal:layout-changed',
+
+  // Orchestration (Agent Groups / Harness Sessions / Quota / Handoff)
+  ORCH_GET_STATE: 'orchestration:get-state',
+  ORCH_CREATE_GROUP: 'orchestration:create-group',
+  ORCH_REMOVE_GROUP: 'orchestration:remove-group',
+  ORCH_ADD_SESSION: 'orchestration:add-session',
+  ORCH_SET_MANAGER: 'orchestration:set-manager',
+  ORCH_SUSPEND_SESSION: 'orchestration:suspend-session',
+  ORCH_RESUME_SESSION: 'orchestration:resume-session',
+  ORCH_CREATE_TASK: 'orchestration:create-task',
+  ORCH_ASSIGN_TASK: 'orchestration:assign-task',
+  ORCH_REPORT_PROGRESS: 'orchestration:report-progress',
+  ORCH_CAPTURE_CHECKPOINT: 'orchestration:capture-checkpoint',
+  ORCH_QUOTA_MARK: 'orchestration:quota-mark',
+  ORCH_QUOTA_OBSERVE: 'orchestration:quota-observe',
+  ORCH_HANDOFF_PREPARE: 'orchestration:handoff-prepare',
+  ORCH_HANDOFF_ACCEPT: 'orchestration:handoff-accept',
+  ORCH_HANDOFF_COMPLETE: 'orchestration:handoff-complete',
+  ORCH_HANDOFF_SYNC_BACK: 'orchestration:handoff-sync-back',
+  ORCH_EVENTS_LIST: 'orchestration:events-list',
+  ORCH_ON_CHANGE: 'orchestration:on-change'
 } as const
 
 export interface FreeTerminalPaneInfo {
@@ -822,4 +843,283 @@ export interface GitPrFile {
 export interface GitPrDiff {
   metadata: GitPrMetadata
   files: GitPrFile[]
+}
+
+// ── Orchestration: Agent Groups, Harness Sessions, Quota, Handoff ────────────
+//
+// V1 (P0) scope from docs/plans/2026-10-09-nested-harness-session-orchestration.md:
+// nested Group → Manager/Worker Session display, session reuse, manual quota
+// marking, persistent checkpoints, and human-confirmed handoff/recovery.
+// V2 (automatic quota events) and V3 (smart routing / multi-level groups) are
+// intentionally not implemented yet.
+
+export type SessionRole = 'manager' | 'planner' | 'worker'
+
+export type SessionLifecycle =
+  | 'registered'
+  | 'starting'
+  | 'ready'
+  | 'busy'
+  | 'suspended'
+  | 'resume_pending'
+  | 'errored'
+  | 'unavailable'
+
+export type QuotaAvailability = 'available' | 'degraded' | 'blocked' | 'unknown'
+
+export type QuotaSource = 'official' | 'cli_signal' | 'manual' | 'estimated' | 'unknown'
+
+export type QuotaConfidence = 'high' | 'medium' | 'low'
+
+export type TaskState =
+  | 'queued'
+  | 'assigned'
+  | 'active'
+  | 'blocked'
+  | 'handoff'
+  | 'review'
+  | 'done'
+
+export type HandoffState =
+  | 'prepared'
+  | 'accepted'
+  | 'in_progress'
+  | 'completed'
+  | 'synced_back'
+  | 'canceled'
+
+export interface AgentGroup {
+  id: string
+  name: string
+  managerSessionId: string | null
+  sessionIds: string[]
+  projectRefs: string[]
+  parentGroupId: string | null
+  orchestrationPolicyId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface HarnessSession {
+  /** Hydra-internal stable ID (distinct from the provider's native session ID). */
+  id: string
+  provider: ProviderId
+  nativeSessionId: string | null
+  /** Working directory that must satisfy the provider's native resume constraint. */
+  cwd: string
+  projectRef: string
+  groupId: string | null
+  role: SessionRole
+  quotaPoolId: string | null
+  lifecycle: SessionLifecycle
+  currentTaskId: string | null
+  checkpointId: string | null
+  /** Link to an AgentState.id when this session is running as a Hydra agent. */
+  agentId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface QuotaPool {
+  /** Stable pool identifier. Never stores credentials. */
+  id: string
+  provider: ProviderId
+  accountAlias: string
+  availability: QuotaAvailability
+  /** Must have a real source; never a fabricated countdown. */
+  resetAt: string | null
+  observedAt: string | null
+  source: QuotaSource
+  confidence: QuotaConfidence
+}
+
+export interface TaskAssignment {
+  id: string
+  groupId: string
+  assigneeSessionId: string | null
+  goal: string
+  acceptanceCriteria: string[]
+  state: TaskState
+  artifacts: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SessionCheckpoint {
+  id: string
+  sessionId: string
+  taskId: string | null
+  completed: string[]
+  nextSteps: string[]
+  decisions: string[]
+  gitBaseCommit: string | null
+  branch: string | null
+  dirtyPaths: string[]
+  artifacts: string[]
+  capturedAt: string
+}
+
+export interface HandoffRecord {
+  id: string
+  groupId: string
+  taskId: string
+  fromSessionId: string
+  toSessionId: string | null
+  state: HandoffState
+  materials: string[]
+  syncBackSummary: string | null
+  createdAt: string
+  acceptedAt: string | null
+  completedAt: string | null
+}
+
+export interface QuotaObservation {
+  poolId: string
+  availability: QuotaAvailability
+  resetAt?: string | null
+  source: QuotaSource
+  confidence: QuotaConfidence
+  rawCode?: string
+  observedAt: string
+}
+
+export type OrchestrationEventType =
+  | 'group.created'
+  | 'group.updated'
+  | 'session.registered'
+  | 'session.started'
+  | 'session.waiting'
+  | 'session.suspended'
+  | 'session.resumed'
+  | 'task.assigned'
+  | 'task.progress_reported'
+  | 'task.blocked'
+  | 'quota.observed'
+  | 'quota.blocked'
+  | 'quota.recovered'
+  | 'checkpoint.created'
+  | 'handoff.requested'
+  | 'handoff.accepted'
+  | 'handoff.completed'
+  | 'handoff.synced_back'
+  | 'task.review_requested'
+  | 'task.done'
+
+export interface OrchestrationEvent {
+  eventId: string
+  type: OrchestrationEventType
+  groupId: string | null
+  sessionId: string | null
+  taskId: string | null
+  occurredAt: string
+  source: string
+  evidence?: string
+  /** Monotonic sequence number; used for idempotency and ordering. */
+  sequence: number
+}
+
+export interface OrchestrationState {
+  schemaVersion: number
+  groups: AgentGroup[]
+  sessions: HarnessSession[]
+  quotaPools: QuotaPool[]
+  tasks: TaskAssignment[]
+  checkpoints: SessionCheckpoint[]
+  handoffs: HandoffRecord[]
+}
+
+/** Session + quota summary for a group, used by the UI/MCP surface. */
+export interface OrchestrationSessionSummary {
+  session: HarnessSession
+  quota: QuotaPool | null
+  currentTask: TaskAssignment | null
+  lastCheckpoint: SessionCheckpoint | null
+}
+
+export interface OrchestrationGroupSummary {
+  group: AgentGroup
+  sessions: OrchestrationSessionSummary[]
+  tasks: TaskAssignment[]
+  handoffs: HandoffRecord[]
+}
+
+export interface OrchestrationSnapshot {
+  state: OrchestrationState
+  groups: OrchestrationGroupSummary[]
+}
+
+export interface AddSessionToGroupPayload {
+  groupId: string
+  provider: ProviderId
+  nativeSessionId?: string | null
+  cwd: string
+  projectRef: string
+  role: SessionRole
+  agentId?: string | null
+  quotaPoolId?: string | null
+}
+
+export interface CreateGroupPayload {
+  name: string
+  projectRefs?: string[]
+  parentGroupId?: string | null
+}
+
+export interface CreateTaskPayload {
+  groupId: string
+  goal: string
+  acceptanceCriteria?: string[]
+}
+
+export interface AssignTaskPayload {
+  taskId: string
+  sessionId: string
+}
+
+export interface ReportProgressPayload {
+  taskId: string
+  note: string
+  completed?: string[]
+  artifacts?: string[]
+}
+
+export interface CaptureCheckpointPayload {
+  sessionId: string
+  taskId?: string | null
+  completed?: string[]
+  nextSteps?: string[]
+  decisions?: string[]
+  gitBaseCommit?: string | null
+  branch?: string | null
+  dirtyPaths?: string[]
+  artifacts?: string[]
+}
+
+export interface QuotaMarkPayload {
+  poolId: string
+  availability: QuotaAvailability
+  resetAt?: string | null
+  source?: QuotaSource
+  confidence?: QuotaConfidence
+}
+
+export interface HandoffPreparePayload {
+  taskId: string
+  fromSessionId: string
+  materials?: string[]
+}
+
+export interface HandoffAcceptPayload {
+  handoffId: string
+  toSessionId: string
+}
+
+export interface HandoffCompletePayload {
+  handoffId: string
+  artifacts?: string[]
+}
+
+export interface HandoffSyncBackPayload {
+  handoffId: string
+  summary: string
 }

@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod'
 import type { AgentManager } from '../agents/AgentManager'
 import type { NotificationService } from '../notifications/NotificationService'
+import type { OrchestrationService } from '../orchestration/OrchestrationService'
 import type { McpServerStatus } from '@shared/types'
 import { setupManagerWorkspace } from './manager-workspace'
 
@@ -23,7 +24,8 @@ export class HydraMcpServer {
 
   constructor(
     private readonly agentManager: AgentManager,
-    private readonly userDataPath: string
+    private readonly userDataPath: string,
+    private readonly orchestration: OrchestrationService | null = null
   ) {}
 
   setNotificationService(service: NotificationService): void {
@@ -184,6 +186,8 @@ export class HydraMcpServer {
   }
 
   private registerTools(server: McpServer): void {
+    this.registerOrchestrationTools(server)
+
     server.tool(
       'hydra_list_agents',
       'List all Hydra agents with their current status, model, project directory, and session info',
@@ -407,6 +411,240 @@ export class HydraMcpServer {
         const notifications = this.notificationService?.getRecent(limit) ?? []
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(notifications, null, 2) }]
+        }
+      }
+    )
+  }
+
+  private registerOrchestrationTools(server: McpServer): void {
+    const orch = this.orchestration
+    if (!orch) return
+
+    const ok = (text: string) => ({ content: [{ type: 'text' as const, text }] })
+    const err = (message: string) => ({
+      content: [{ type: 'text' as const, text: message }],
+      isError: true
+    })
+
+    server.tool(
+      'hydra_group_create',
+      'Create an Agent Group: a long-lived container for a Manager and its member Harness sessions.',
+      {
+        name: z.string().min(1).max(120),
+        projectRefs: z.array(z.string().max(4096)).optional()
+      },
+      async ({ name, projectRefs }) => {
+        try {
+          return ok(JSON.stringify(orch.createGroup({ name, projectRefs }), null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_group_get_state',
+      'Get the state of all groups (or one group): members, tasks, quota, checkpoints and handoffs.',
+      {
+        groupId: z.string().max(128).optional()
+      },
+      async ({ groupId }) => {
+        const snapshot = orch.snapshot()
+        const groups = groupId ? snapshot.groups.filter((g) => g.group.id === groupId) : snapshot.groups
+        return ok(JSON.stringify(groups, null, 2))
+      }
+    )
+
+    server.tool(
+      'hydra_group_add_session',
+      'Register a Harness session and add it to a group. Records the provider, native session id, cwd and role.',
+      {
+        groupId: z.string().max(128),
+        provider: z.enum(['claude', 'codex', 'opencode', 'dsh']),
+        cwd: z.string().min(1).max(4096),
+        projectRef: z.string().min(1).max(4096),
+        role: z.enum(['manager', 'planner', 'worker']),
+        nativeSessionId: z.string().max(256).optional(),
+        quotaPoolId: z.string().max(128).optional()
+      },
+      async ({ groupId, provider, cwd, projectRef, role, nativeSessionId, quotaPoolId }) => {
+        try {
+          const session = orch.addSession({
+            groupId,
+            provider,
+            cwd,
+            projectRef,
+            role,
+            nativeSessionId: nativeSessionId ?? null,
+            quotaPoolId: quotaPoolId ?? null
+          })
+          return ok(JSON.stringify(session, null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_session_suspend',
+      'Suspend a Harness session (stops new dispatch; the session is not deleted).',
+      { sessionId: z.string().max(128) },
+      async ({ sessionId }) => {
+        try {
+          return ok(JSON.stringify(orch.suspendSession(sessionId), null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_session_resume',
+      'Mark a suspended session resume-pending; provider validation confirms it before work resumes.',
+      { sessionId: z.string().max(128) },
+      async ({ sessionId }) => {
+        try {
+          return ok(JSON.stringify(orch.resumeSession(sessionId), null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_task_assign',
+      'Create a task in a group and optionally assign it to an existing session (never auto-creates one).',
+      {
+        groupId: z.string().max(128),
+        goal: z.string().min(1).max(4000),
+        acceptanceCriteria: z.array(z.string().max(1000)).optional(),
+        sessionId: z.string().max(128).optional()
+      },
+      async ({ groupId, goal, acceptanceCriteria, sessionId }) => {
+        try {
+          const task = orch.createTask({ groupId, goal, acceptanceCriteria })
+          if (sessionId) {
+            const assigned = orch.assignTask({ taskId: task.id, sessionId })
+            return ok(JSON.stringify(assigned, null, 2))
+          }
+          return ok(JSON.stringify(task, null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_task_report',
+      'Report verifiable progress on a task with optional completed items and artifacts.',
+      {
+        taskId: z.string().max(128),
+        note: z.string().max(4000),
+        completed: z.array(z.string().max(1000)).optional(),
+        artifacts: z.array(z.string().max(4096)).optional()
+      },
+      async ({ taskId, note, completed, artifacts }) => {
+        try {
+          const task = orch.reportProgress({ taskId, note, completed, artifacts })
+          return ok(JSON.stringify(task, null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_quota_get_status',
+      'Get the quota pool status for a session (availability, source, confidence, reset time).',
+      { sessionId: z.string().max(128) },
+      async ({ sessionId }) => {
+        const session = orch.sessions.get(sessionId)
+        if (!session) return err(`Session not found: ${sessionId}`)
+        const pool = session.quotaPoolId ? orch.quota.get(session.quotaPoolId) : null
+        return ok(JSON.stringify({ sessionId, quotaPoolId: session.quotaPoolId, pool }, null, 2))
+      }
+    )
+
+    server.tool(
+      'hydra_quota_mark_blocked',
+      'Manually mark a quota pool blocked (or available) with a real source; never fabricates a reset time.',
+      {
+        poolId: z.string().max(128),
+        availability: z.enum(['available', 'degraded', 'blocked', 'unknown']),
+        resetAt: z.string().max(64).optional(),
+        source: z.enum(['official', 'cli_signal', 'manual', 'estimated', 'unknown']).optional()
+      },
+      async ({ poolId, availability, resetAt, source }) => {
+        try {
+          const pool = orch.markQuota({ poolId, availability, resetAt: resetAt ?? null, source })
+          return ok(JSON.stringify(pool, null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_checkpoint_capture',
+      'Capture a task checkpoint for a session: completed work, next steps, decisions and safe Git metadata.',
+      {
+        sessionId: z.string().max(128),
+        taskId: z.string().max(128).optional(),
+        completed: z.array(z.string().max(1000)).optional(),
+        nextSteps: z.array(z.string().max(1000)).optional(),
+        decisions: z.array(z.string().max(1000)).optional(),
+        branch: z.string().max(256).optional(),
+        gitBaseCommit: z.string().max(128).optional(),
+        dirtyPaths: z.array(z.string().max(4096)).optional()
+      },
+      async ({ sessionId, taskId, completed, nextSteps, decisions, branch, gitBaseCommit, dirtyPaths }) => {
+        try {
+          const checkpoint = orch.captureCheckpoint({
+            sessionId,
+            taskId: taskId ?? null,
+            completed,
+            nextSteps,
+            decisions,
+            branch: branch ?? null,
+            gitBaseCommit: gitBaseCommit ?? null,
+            dirtyPaths
+          })
+          return ok(JSON.stringify(checkpoint, null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_handoff_prepare',
+      'Prepare a handoff: move a task from one session with materials, checkpoint and acceptance criteria.',
+      {
+        taskId: z.string().max(128),
+        fromSessionId: z.string().max(128),
+        materials: z.array(z.string().max(4096)).optional()
+      },
+      async ({ taskId, fromSessionId, materials }) => {
+        try {
+          return ok(JSON.stringify(orch.prepareHandoff({ taskId, fromSessionId, materials }), null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+    )
+
+    server.tool(
+      'hydra_handoff_accept',
+      'Accept a handoff into another Harness session, transferring the task without deleting the original.',
+      {
+        handoffId: z.string().max(128),
+        toSessionId: z.string().max(128)
+      },
+      async ({ handoffId, toSessionId }) => {
+        try {
+          return ok(JSON.stringify(orch.acceptHandoff({ handoffId, toSessionId }), null, 2))
+        } catch (e) {
+          return err(`Failed: ${e instanceof Error ? e.message : String(e)}`)
         }
       }
     )

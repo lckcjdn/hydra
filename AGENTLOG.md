@@ -677,3 +677,9 @@ Mistakes, gotchas, and lessons learned during development. Check here before sta
 **Context**: Introduced `refreshEditor()` wrapping `editor.refresh()`, and `describeAcpError()` wrapping `error instanceof Error ? error.message : String(error)`; both were then applied everywhere with a blind `replace_all`.
 **Mistake**: The pattern also matched the **inside** of the new helper, so each function called itself (`RangeError: Maximum call stack size exceeded`). Happened twice in one session.
 **Fix**: After a `replace_all`, re-read the helper you just introduced (or exclude it by editing before the rename). Prefer renaming the call sites one at a time when the new helper's body contains the old expression.
+
+### Store persistState() ran before this.state was assigned (writeFileSync undefined)
+**Date**: 2026-10-09
+**Context**: New OrchestrationStore calls this.loadState() in its constructor, and loadState() called this.persistState() on first run to seed the file.
+**Mistake**: persistState() serialized this.state, which is still undefined during the constructor's initial load, so writeFileSync(path, undefined) threw ERR_INVALID_ARG_TYPE (caught + logged, but the seed file was never written).
+**Fix**: Split a writeState(state) helper that takes the state explicitly; call it with the empty default during load, and have persistState() only delegate writeState(this.state) for post-construction updates. Rule of thumb: a persistence method that reads this.<field> must never be called before that field is assigned in the constructor.

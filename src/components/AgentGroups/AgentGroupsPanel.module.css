@@ -1,0 +1,246 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.panel {
+  width: min(920px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: #1f1f1d;
+  border: 1px solid #3a3a37;
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  color: #e6e4df;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px 20px;
+  border-bottom: 1px solid #3a3a37;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #9a9890;
+}
+
+.closeBtn {
+  border: none;
+  background: transparent;
+  color: #9a9890;
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.closeBtn:hover {
+  color: #e6e4df;
+}
+
+.body {
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+}
+
+.newGroupForm {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.inlineForm {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+
+.input,
+.select {
+  background: #171716;
+  border: 1px solid #3a3a37;
+  border-radius: 6px;
+  color: #e6e4df;
+  padding: 6px 9px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: #5b8cff;
+}
+
+.primaryBtn {
+  background: #2f5cff;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.primaryBtn:disabled {
+  background: #3a3a37;
+  cursor: not-allowed;
+  color: #9a9890;
+}
+
+.miniBtn {
+  background: #2b2b29;
+  border: 1px solid #3a3a37;
+  border-radius: 5px;
+  color: #d8d6cf;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.miniBtn:hover {
+  border-color: #5b8cff;
+}
+
+.card {
+  border: 1px solid #33322f;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: #232321;
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.cardTitle {
+  font-size: 15px;
+}
+
+.sectionLabel {
+  margin: 14px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9a9890;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #2c2c2a;
+  font-size: 12px;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowActions {
+  display: flex;
+  gap: 4px;
+}
+
+.badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #2b2b29;
+  color: #b9b7b0;
+  white-space: nowrap;
+}
+
+.role_manager { background: #3a2f12; color: #e8c36a; }
+.role_planner { background: #1f2f3a; color: #6ab8e8; }
+.role_worker { background: #2b2b29; color: #b9b7b0; }
+
+.lifecycle_busy { background: #12301f; color: #6fd38a; }
+.lifecycle_ready { background: #1f2f3a; color: #6ab8e8; }
+.lifecycle_suspended { background: #3a2f12; color: #e8c36a; }
+.lifecycle_starting { background: #1f2f3a; color: #6ab8e8; }
+.lifecycle_errored { background: #3a1716; color: #e86a5f; }
+
+.quota_available { background: #12301f; color: #6fd38a; }
+.quota_degraded { background: #3a2f12; color: #e8c36a; }
+.quota_blocked { background: #3a1716; color: #e86a5f; }
+.quota_unknown { background: #2b2b29; color: #9a9890; }
+
+.task_queued { background: #2b2b29; color: #9a9890; }
+.task_assigned { background: #1f2f3a; color: #6ab8e8; }
+.task_active { background: #12301f; color: #6fd38a; }
+.task_blocked { background: #3a1716; color: #e86a5f; }
+.task_handoff { background: #3a2f12; color: #e8c36a; }
+.task_review { background: #31233a; color: #c08ae8; }
+.task_done { background: #2b2b29; color: #b9b7b0; }
+
+.handoff_prepared { background: #2b2b29; color: #b9b7b0; }
+.handoff_accepted { background: #1f2f3a; color: #6ab8e8; }
+.handoff_in_progress { background: #12301f; color: #6fd38a; }
+.handoff_completed { background: #31233a; color: #c08ae8; }
+.handoff_synced_back { background: #12301f; color: #6fd38a; }
+.handoff_canceled { background: #3a1716; color: #e86a5f; }
+
+.muted {
+  color: #9a9890;
+  font-size: 11px;
+}
+
+.empty,
+.emptySmall {
+  color: #9a9890;
+  font-size: 12px;
+  padding: 8px 0;
+}
+
+.empty {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.error {
+  color: #e86a5f;
+  font-size: 12px;
+  padding: 8px 0;
+}
