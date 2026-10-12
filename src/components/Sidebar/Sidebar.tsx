@@ -5,6 +5,7 @@ import { SortDropdown } from './SortDropdown'
 import { FilterDropdown } from './FilterDropdown'
 import { FilterChips } from './FilterChips'
 import { useFilterSort } from './useFilterSort'
+import { useOrchestration } from '../../hooks/useOrchestration'
 import { fuzzyScore } from '../../lib/fuzzy'
 import type { ProjectGroup, EditorId } from '@shared/types'
 import styles from './Sidebar.module.css'
@@ -48,6 +49,9 @@ export function Sidebar({
   const seenDirsRef = useRef<Set<string>>(new Set(projectGroups.map((g) => g.projectDir)))
   const [isDragging, setIsDragging] = useState(false)
   const [selectionMode, setSelectionMode] = useState(false)
+  const [groupsExpanded, setGroupsExpanded] = useState(true)
+  const { snapshot } = useOrchestration()
+  const groups = snapshot?.groups ?? []
   const treeContainerRef = useRef<HTMLDivElement>(null)
   const startXRef = useRef(0)
   const startWidthRef = useRef(0)
@@ -214,6 +218,39 @@ export function Sidebar({
       </div>
 
       <FilterChips chips={chips} onDismiss={dismissChip} />
+
+      <div className={styles.sectionHeader}>
+        <span className={styles.sectionLabel}>GROUPS</span>
+        <button
+          className={styles.sectionToggle}
+          onClick={() => setGroupsExpanded((prev) => !prev)}
+          aria-label={groupsExpanded ? 'Collapse groups' : 'Expand groups'}
+        >
+          {groupsExpanded ? '−' : '+'}
+        </button>
+      </div>
+
+      {groupsExpanded && (
+        groups.length === 0 ? (
+          <button className={styles.groupItem} onClick={onOpenGroups}>
+            <LayersIcon />
+            <span className={styles.groupName}>No groups yet</span>
+            <span className={styles.groupHint}>Create one</span>
+          </button>
+        ) : (
+          <div className={styles.groupsList}>
+            {groups.map((item) => (
+              <button key={item.group.id} className={styles.groupItem} onClick={onOpenGroups}>
+                <LayersIcon />
+                <span className={styles.groupName}>{item.group.name}</span>
+                <span className={styles.groupHint}>
+                  {item.group.sessionIds.length} session{item.group.sessionIds.length === 1 ? '' : 's'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )
+      )}
 
       <div className={styles.sectionHeader}>
         <span className={styles.sectionLabel}>PROJECTS</span>

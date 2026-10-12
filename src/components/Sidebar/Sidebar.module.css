@@ -50,6 +50,56 @@
   gap: 2px;
 }
 
+.sectionToggle {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.sectionToggle:hover {
+  background: var(--color-sidebar-hover);
+  color: var(--color-text-secondary);
+}
+
+.groupsList {
+  padding: 0 var(--space-2) var(--space-1);
+}
+
+.groupItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+
+.groupItem:hover {
+  background: var(--color-sidebar-hover);
+  color: var(--color-accent);
+}
+
+.groupName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
 .treeContainer {
   flex: 1;
   overflow-y: auto;
