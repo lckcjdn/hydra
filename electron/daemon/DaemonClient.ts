@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events'
 import { request as httpRequest, type RequestOptions } from 'http'
-import { createConnection } from 'net'
 import WebSocket from 'ws'
 import type {
   AgentState,
@@ -53,7 +52,7 @@ export class DaemonClient extends EventEmitter {
   private connected = false
   private destroyed = false
 
-  constructor(private readonly socketPath: string) {
+  constructor(private readonly port: number) {
     super()
   }
 
@@ -86,12 +85,7 @@ export class DaemonClient extends EventEmitter {
   private connectWebSocket(): void {
     if (this.destroyed) return
 
-    // Route websocket traffic over a raw Unix socket connection.
-    // Using ws+unix URLs can URL-encode spaces in macOS paths
-    // (e.g. `Application Support` -> `%20`) and fail with ENOENT.
-    const ws = new WebSocket('ws://localhost/ws', {
-      createConnection: () => createConnection(this.socketPath)
-    })
+    const ws = new WebSocket(`ws://127.0.0.1:${this.port}/ws`)
 
     ws.on('open', () => {
       this.wsReconnectAttempts = 0
@@ -477,7 +471,8 @@ export class DaemonClient extends EventEmitter {
   private httpRequest(method: string, path: string, body?: unknown): Promise<any> {
     return new Promise((resolve, reject) => {
       const options: RequestOptions = {
-        socketPath: this.socketPath,
+        host: '127.0.0.1',
+        port: this.port,
         path,
         method,
         headers: { 'Content-Type': 'application/json' }

@@ -203,14 +203,16 @@ async function main(): Promise<void> {
 
   await server.start()
 
-  // Write lock file
+  // Write lock file. The client reconnects over localhost TCP (see DaemonServer).
+  const port = server.getPort()
+  if (port === null) throw new Error('Daemon failed to bind a TCP port')
   writeLockFile(lockPath, {
     pid: process.pid,
-    socketPath,
+    port,
     startedAt: new Date().toISOString()
   })
 
-  console.log(`[daemon] Ready — lock file written to ${lockPath}`)
+  console.log(`[daemon] Ready — lock file written to ${lockPath} (port ${port})`)
 
   // ── Signal handling ─────────────────────────────────────────────────────
 

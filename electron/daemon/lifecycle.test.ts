@@ -18,7 +18,7 @@ const mockState = vi.hoisted(() => ({
   connectMock: vi.fn(),
   healthMock: vi.fn(),
   shutdownMock: vi.fn(),
-  daemonClientConstructedSockets: [] as string[]
+  daemonClientConstructedPorts: [] as number[]
 }))
 
 vi.mock('child_process', () => ({
@@ -37,17 +37,17 @@ vi.mock('./lock', () => ({
 
 vi.mock('./DaemonClient', () => ({
   DaemonClient: class MockDaemonClient {
-    constructor(public readonly socketPath: string) {
-      mockState.daemonClientConstructedSockets.push(socketPath)
+    constructor(public readonly port: number) {
+      mockState.daemonClientConstructedPorts.push(port)
     }
     connect(): Promise<void> {
-      return mockState.connectMock(this.socketPath)
+      return mockState.connectMock(this.port)
     }
     health(): Promise<void> {
-      return mockState.healthMock(this.socketPath)
+      return mockState.healthMock(this.port)
     }
     shutdown(): Promise<void> {
-      return mockState.shutdownMock(this.socketPath)
+      return mockState.shutdownMock(this.port)
     }
   }
 }))
@@ -83,7 +83,7 @@ describe('daemon lifecycle', () => {
     mockState.connectMock.mockReset()
     mockState.healthMock.mockReset()
     mockState.shutdownMock.mockReset()
-    mockState.daemonClientConstructedSockets.length = 0
+    mockState.daemonClientConstructedPorts.length = 0
 
     mockState.spawnMock.mockImplementation(() => buildChildProcessMock())
     mockState.openSyncMock.mockReturnValue(99)
@@ -123,7 +123,7 @@ describe('daemon lifecycle', () => {
   it('connects to existing daemon when lock file is healthy', async () => {
     const lock: DaemonLockData = {
       pid: 1234,
-      socketPath: '/tmp/existing.sock',
+      port: 5010,
       startedAt: '2026-02-28T00:00:00.000Z'
     }
     mockState.readLockFileMock.mockReturnValue(lock)
@@ -138,7 +138,7 @@ describe('daemon lifecycle', () => {
 
     await expect(ensureDaemon(paths)).resolves.toBeDefined()
     expect(mockState.connectMock).toHaveBeenCalledTimes(1)
-    expect(mockState.connectMock).toHaveBeenCalledWith('/tmp/existing.sock')
+    expect(mockState.connectMock).toHaveBeenCalledWith(5010)
     expect(mockState.spawnMock).not.toHaveBeenCalled()
     expect(mockState.removeLockFileMock).not.toHaveBeenCalled()
   })
@@ -146,12 +146,19 @@ describe('daemon lifecycle', () => {
   it('respawns daemon when lock file is stale and sets node-mode env flag', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
 
-    const lock: DaemonLockData = {
+    const staleLock: DaemonLockData = {
       pid: 2222,
-      socketPath: '/tmp/stale.sock',
+      port: 5020,
       startedAt: '2026-02-28T00:00:00.000Z'
     }
-    mockState.readLockFileMock.mockReturnValue(lock)
+    const freshLock: DaemonLockData = {
+      pid: 2223,
+      port: 5030,
+      startedAt: '2026-02-28T00:00:00.000Z'
+    }
+    mockState.readLockFileMock
+      .mockReturnValueOnce(staleLock) // first read: stale
+      .mockReturnValue(freshLock) // subsequent reads during polling
     mockState.connectMock
       .mockRejectedValueOnce(new Error('stale daemon'))
       .mockResolvedValueOnce(undefined)
@@ -189,10 +196,21 @@ describe('daemon lifecycle', () => {
         ELECTRON_RUN_AS_NODE: '1'
       })
     })
+    expect(mockState.connectMock).toHaveBeenLastCalledWith(5030)
   })
 
   it('captures daemon stdout and stderr to a log file on windows', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+
+    // No existing daemon on the first read; the spawned daemon then writes
+    // its lock file (with a TCP port) during polling.
+    mockState.readLockFileMock
+      .mockReturnValueOnce(null)
+      .mockReturnValue({
+        pid: 2222,
+        port: 5040,
+        startedAt: '2026-02-28T00:00:00.000Z'
+      })
 
     const { ensureDaemon } = await import('./lifecycle')
     const paths = {
@@ -214,6 +232,8 @@ describe('daemon lifecycle', () => {
   })
 
   it('throws when spawned daemon never becomes connectable', async () => {
+    // Lock file never appears during polling.
+    mockState.readLockFileMock.mockReturnValue(null)
     mockState.connectMock.mockRejectedValue(new Error('still down'))
 
     const { ensureDaemon } = await import('./lifecycle')
@@ -227,7 +247,7 @@ describe('daemon lifecycle', () => {
     const pending = expect(ensureDaemon(paths)).rejects.toThrow(
       'Daemon failed to start within timeout'
     )
-    await vi.advanceTimersByTimeAsync(11_000)
+    await vi.advanceTimersByTimeAsync(61_000)
     await pending
     expect(mockState.spawnMock).toHaveBeenCalledTimes(1)
   })
@@ -291,7 +311,7 @@ describe('daemon lifecycle', () => {
   it('stopDaemon requests graceful shutdown and removes lock file', async () => {
     const lock: DaemonLockData = {
       pid: 3333,
-      socketPath: '/tmp/live.sock',
+      port: 5050,
       startedAt: '2026-02-28T00:00:00.000Z'
     }
     mockState.readLockFileMock.mockReturnValue(lock)
@@ -305,14 +325,14 @@ describe('daemon lifecycle', () => {
     }
 
     await stopDaemon(paths)
-    expect(mockState.shutdownMock).toHaveBeenCalledWith('/tmp/live.sock')
+    expect(mockState.shutdownMock).toHaveBeenCalledWith(5050)
     expect(mockState.removeLockFileMock).toHaveBeenCalledWith('/tmp/daemon.lock')
   })
 
   it('stopDaemon kills daemon pid when graceful shutdown fails', async () => {
     const lock: DaemonLockData = {
       pid: 4444,
-      socketPath: '/tmp/broken.sock',
+      port: 5060,
       startedAt: '2026-02-28T00:00:00.000Z'
     }
     mockState.readLockFileMock.mockReturnValue(lock)
@@ -335,10 +355,15 @@ describe('daemon lifecycle', () => {
   it('health monitor notifies disconnect/reconnect when daemon recovers', async () => {
     mockState.healthMock.mockRejectedValueOnce(new Error('lost connection'))
     mockState.connectMock.mockResolvedValue(undefined)
+    mockState.readLockFileMock.mockReturnValue({
+      pid: 5555,
+      port: 5070,
+      startedAt: '2026-02-28T00:00:00.000Z'
+    })
 
     const { startHealthMonitor } = await import('./lifecycle')
     const { DaemonClient } = await import('./DaemonClient')
-    const client = new DaemonClient('/tmp/current.sock')
+    const client = new DaemonClient(5070)
     const onReconnected = vi.fn()
     const onDisconnected = vi.fn()
 
@@ -365,7 +390,7 @@ describe('daemon lifecycle', () => {
   it('health monitor stop function prevents future checks', async () => {
     const { startHealthMonitor } = await import('./lifecycle')
     const { DaemonClient } = await import('./DaemonClient')
-    const client = new DaemonClient('/tmp/current.sock')
+    const client = new DaemonClient(5080)
 
     const stop = startHealthMonitor(
       client as unknown as import('./DaemonClient').DaemonClient,

@@ -91,6 +91,7 @@ export class DaemonServer {
   private readonly outputFlushIntervalMs = 16
   private server: Server | null = null
   private wss: WebSocketServer | null = null
+  private port: number | null = null
   private readonly socketPath: string
   private readonly agentManager: AgentManager
   private readonly configStore: ConfigStore
@@ -129,11 +130,6 @@ export class DaemonServer {
   }
 
   async start(): Promise<void> {
-    // Remove stale socket file (not needed for Windows named pipes)
-    if (!this.socketPath.startsWith('\\\\.\\pipe\\') && existsSync(this.socketPath)) {
-      try { unlinkSync(this.socketPath) } catch { /* ignore */ }
-    }
-
     this.server = createServer((req, res) => this.handleRequest(req, res))
     this.wss = new WebSocketServer({ server: this.server })
 
@@ -175,13 +171,25 @@ export class DaemonServer {
       this.broadcast({ type: 'notification', payload: notification })
     })
 
-    return new Promise((resolve, reject) => {
+    // Listen on a localhost TCP port. Named pipes are avoided because
+    // Electron's bundled Node (v20) cannot open a named pipe as a *client*
+    // on some Windows machines (ENOENT), which broke daemon connectivity.
+    this.port = await new Promise<number>((resolve, reject) => {
       this.server!.on('error', reject)
-      this.server!.listen(this.socketPath, () => {
-        console.log(`[daemon] HTTP+WS server listening on ${this.socketPath}`)
-        resolve()
+      this.server!.listen(0, '127.0.0.1', () => {
+        const addr = this.server!.address()
+        if (addr && typeof addr === 'object' && typeof addr.port === 'number') {
+          resolve(addr.port)
+        } else {
+          reject(new Error('Failed to obtain daemon TCP port'))
+        }
       })
     })
+    console.log(`[daemon] HTTP+WS server listening on 127.0.0.1:${this.port}`)
+  }
+
+  getPort(): number | null {
+    return this.port
   }
 
   private killTestPty(): void {

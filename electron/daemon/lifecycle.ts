@@ -5,7 +5,9 @@ import { DaemonClient } from './DaemonClient'
 import { readLockFile, removeLockFile } from './lock'
 
 const HEALTH_CHECK_INTERVAL = 10000
-const STARTUP_TIMEOUT = 10000
+// Session import (hundreds of Claude/Codex/DSH sessions) can exceed 10s on a
+// cold cache, so give the daemon a generous window to become connectable.
+const STARTUP_TIMEOUT = 60000
 const STARTUP_POLL_INTERVAL = 200
 
 export interface DaemonPaths {
@@ -41,12 +43,12 @@ export function getDaemonPaths(userDataPath: string): DaemonPaths {
  * If the daemon isn't running, spawns it and waits for it to be ready.
  */
 export async function ensureDaemon(paths: DaemonPaths): Promise<DaemonClient> {
-  const { socketPath, lockPath } = paths
+  const { lockPath } = paths
 
   // Check if daemon is already running
   const lock = readLockFile(lockPath)
   if (lock) {
-    const client = new DaemonClient(lock.socketPath)
+    const client = new DaemonClient(lock.port)
     try {
       await client.connect()
       console.log(`[lifecycle] Connected to existing daemon (PID ${lock.pid})`)
@@ -60,18 +62,22 @@ export async function ensureDaemon(paths: DaemonPaths): Promise<DaemonClient> {
   // Spawn daemon
   await spawnDaemon(paths)
 
-  // Wait for daemon to be ready
-  const client = new DaemonClient(socketPath)
+  // Wait for the daemon to write its lock file (which carries the TCP port).
   const deadline = Date.now() + STARTUP_TIMEOUT
 
   while (Date.now() < deadline) {
-    try {
-      await client.connect()
-      console.log('[lifecycle] Connected to newly spawned daemon')
-      return client
-    } catch {
-      await sleep(STARTUP_POLL_INTERVAL)
+    const current = readLockFile(lockPath)
+    if (current && typeof current.port === 'number') {
+      const client = new DaemonClient(current.port)
+      try {
+        await client.connect()
+        console.log('[lifecycle] Connected to newly spawned daemon')
+        return client
+      } catch {
+        // Daemon wrote the lock but isn't answering yet — retry.
+      }
     }
+    await sleep(STARTUP_POLL_INTERVAL)
   }
 
   throw new Error('Daemon failed to start within timeout')
@@ -149,7 +155,7 @@ export async function stopDaemon(paths: DaemonPaths): Promise<void> {
   const lock = readLockFile(lockPath)
   if (!lock) return
 
-  const client = new DaemonClient(lock.socketPath)
+  const client = new DaemonClient(lock.port)
   try {
     await client.shutdown()
   } catch {

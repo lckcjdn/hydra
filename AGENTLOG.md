@@ -683,3 +683,9 @@ Mistakes, gotchas, and lessons learned during development. Check here before sta
 **Context**: New OrchestrationStore calls this.loadState() in its constructor, and loadState() called this.persistState() on first run to seed the file.
 **Mistake**: persistState() serialized this.state, which is still undefined during the constructor's initial load, so writeFileSync(path, undefined) threw ERR_INVALID_ARG_TYPE (caught + logged, but the seed file was never written).
 **Fix**: Split a writeState(state) helper that takes the state explicitly; call it with the empty default during load, and have persistState() only delegate writeState(this.state) for post-construction updates. Rule of thumb: a persistence method that reads this.<field> must never be called before that field is assigned in the constructor.
+
+### Daemon IPC: Windows named-pipe client is unreliable under Electron's Node — use TCP
+**Date**: 2026-10-12
+**Context**: Hydra spawned a daemon that listens on a Windows named pipe (\.pipe\hydra-daemon-...) and the Electron main process connected via DaemonClient using http.request({ socketPath }) and ws createConnection(socketPath). On this machine the main process reported "Daemon failed to start within timeout" even though the daemon reached "Ready".
+**Mistake**: Named-pipe *client* connections from Electron's bundled Node (v20.18.3 in Electron 33) failed with ENOENT (pipes) even though a plain Node (v24) client connected to the same pipe successfully, and the daemon-side listener worked. The 10s STARTUP_TIMEOUT also masked slow cold session imports (200 Codex + 108 DSH sessions).
+**Fix**: Switched the daemon's HTTP+WS IPC to a localhost TCP port (listen(0, '127.0.0.1')), wrote the bound port into daemon.lock, and made DaemonClient connect via host:port (HTTP) and ws://127.0.0.1:PORT/ws. Also raised STARTUP_TIMEOUT 10s -> 60s. Keep the pipe path only for logging/back-compat.
